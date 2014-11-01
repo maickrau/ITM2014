@@ -1,0 +1,2 @@
+#include <stdio.h>
+main(int b,char**c){FILE*fp=fopen(c[1],"rb");int d=0,e=0,a;while(1){a=getc(fp);if(feof(fp)){if(d!=0){printf("%d\n",d);}return;}while(a==128){d+=254;a=getc(fp);}while(a==129){d-=254;a=getc(fp);}d+=(char)a;printf("%d\n",d);d=0;}fclose(fp);}
