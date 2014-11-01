@@ -1,0 +1,26 @@
+The curve seems to be based on a sine-function. manual_fit.ods shows attempts at manually fitting a curve. gnuplot was then used:
+
+gnuplot> f(x) = -sin(x*a+b)*(c*(200-x)+d*x)+(e*(200-x)+f*x)
+gnuplot> a = 3; b = 1.57; c = -3; d = 1.5; e = -2.5; f = 1.25
+gnuplot> fit f(x) "curve1_xy.dat" via a,b,c,d,e,f
+
+After 11 iterations the fit converged.
+final sum of squares of residuals : 8.50164e+06
+rel. change during last iteration : -6.25383e-06
+
+degrees of freedom    (FIT_NDF)                        : 194
+rms of residuals      (FIT_STDFIT) = sqrt(WSSR/ndf)    : 209.339
+variance of residuals (reduced chisquare) = WSSR/ndf   : 43822.9
+
+Final set of parameters            Asymptotic Standard Error
+=======================            ==========================
+
+a               = 2.97828          +/- 0.06764      (2.271%)
+b               = 2.40659          +/- 3.808        (158.2%)
+c               = 0.089496         +/- 0.2047       (228.7%)
+d               = -0.0184135       +/- 0.2022       (1098%)
+e               = -1.00154         +/- 0.1486       (14.84%)
+f               = 0.674291         +/- 0.1475       (21.87%)
+
+
+manual_fit.ods also shows the gnuplot-fitted curve. The original manual fit was actually a better fit.
