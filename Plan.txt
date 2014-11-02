@@ -21,4 +21,8 @@ The output file should not be encoded using UTF-8 or any other coding standard. 
 
 6. Write the decompress program for curve1.dat. This program use offset decompression as a subroutine.
 
+7. Redo huffman coding directly to "curve1.dat", and write a decompression program without curve function.
+
+8. Compare total size and choose whatever the smallest.
+
 7. Write script.
