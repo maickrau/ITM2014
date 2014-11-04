@@ -1,0 +1,23 @@
+First week.
+
+
+Analysis of the first data set reveals some kind of curve function that fits the data.
+
+The first data set, which basically contains signed integers, is also a sequence with the alphabet { 0,1,2,3,4,5,6,7,8,9, -, '\n'}
+
+So the first idea was using a program with fit the data with the function we found in a way that errors will be minimized.
+
+Errors will be separately encoded as offsets which will be used later to decompress data in exact values.
+
+Basically, there is a curve function for encoding as much information of the original data as possible, the rest of information will be encoded by symbol codes.
+
+Or we can put it in this way: the goal of this idea is to minimized the sized of the file contains all offsets.
+
+It seems that the size of the program for encoding data from a text file as symbol codes was an issue given the data itself was only 200 integers in the first week. 
+
+Needless to say the programs for curve fitting, decoding using huffman tree, decoding from bitstream....
+
+Therefore compressing a python program that print every integer with gzip is the winning strategy for now.
+
+
+Second Week.
