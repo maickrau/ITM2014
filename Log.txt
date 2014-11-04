@@ -1,7 +1,7 @@
 First week.
 
 
-Analysis of the first data set reveals some kind of curve function that fits the data.
+Analysis of the first data set reveals some kind of curve function that fits the data.(See curve1_analysis and manual_fit.ods)
 
 The first data set, which basically contains signed integers, is also a sequence with the alphabet { 0,1,2,3,4,5,6,7,8,9, -, '\n'}
 
