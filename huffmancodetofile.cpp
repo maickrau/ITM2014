@@ -22,7 +22,7 @@ void huffmancodetobinaryfile(int huffmancodes[], int length){
    
     std::cout << "\n";
 
-  std::ofstream output("huffmancode.bin",std::ios::binary); // Actually, what is this file are huffman codes with some extra zeros. Because the original huffman code migth not be integer times of 8. Hence it is very important that we know the original code length when decoding using this file. Or else, we will decode a few more zeros.
+  std::ofstream output("huffmancode.bin",std::ios::binary); // Actually, what is in this file are huffman codes with some extra zeros. Because the original huffman code migth not be integer times of 8. Hence it is very important that we know the original code length when decoding using this file. Or else, we will decode a few more zeros.
 
   std::bitset<8> packasbyte; //Or we can say that it will be pack as an unsigned char
   int j = 0;
