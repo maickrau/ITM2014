@@ -1,0 +1,52 @@
+Information Theoretic Modeling
+Project : De Compression Competition
+
+Instructions
+============
+
+Say 'make test' in order to compress and decompress files using your
+programs, and to check that the result is ok. E.g.,
+
+---------------------------------------------------------------------
+> make test
+data/curve1.dat: 14832 -> *482 + 14832 (100%) = 15314 (103%) Ok.
+data/curve2.dat: 31568 -> *482 + 31568 (100%) = 32050 (101%) Ok.
+data/info.xpm: 15527 -> 482 + 15527 (100%) = 16009 (103%) Ok.
+data/letter.dat: 20000 -> *482 + 20000 (100%) = 20482 (102%) Ok.
+data/mushroom.dat: 8124 -> *482 + 8124 (100%) = 8606 (105%) Ok.
+---------------------------------------------------------------------
+
+says that the files curve1, curve2, info, letter, and mushroom were
+all handled ok. For instance, the file curve1.dat was originally 14832
+bytes, it was compressed and decompressed using side information (the
+'*' says that) using a 482 byte decompressor program. The compressed
+version was 14832 bytes (small wonder; the sample program just prints
+its input), giving a total of 15314 bytes. The total score was
+15314 + 32050 + 16009 + 20482 + 8606 bytes.
+
+In order to deliver your solution say 'make tar' in this directory, rename 
+the resulting file as <group-name>.tgz, where <group-name> is your group's
+name, and send the file to teemu.roos@cs.helsinki.fi AND
+jussi.maatta@helsinki.fi .
+
+Files
+=====
+
+index.html         - your document
+figures            - a directory for possible diagrams etc. in your
+                     document. Have relative references in your HTML
+data/*.dat         - data to be compressed, e.g.:
+data/curve1.dat    - first data set
+sdata/*.sdat       - side information (not available for all files; same prefix as the data)
+runtest.sh         - test script (do not edit! if there is a problem,
+                     contact Teemu or Jussi)
+decompressor/      - a directory for decompress.sh script, decompressing program source and 
+                     anything else required to decompress. All items in this directory, 
+                     and sub directories inside, would be counted
+compressor/        - a directory for compress.sh, compressing program source, and anything else
+                     required to perform compression. 
+compress.sh        - a script invoking your compressor
+decompress.sh      - a script invoking your de-compressor
+
+
+November 5 2014, Teemu Roos
