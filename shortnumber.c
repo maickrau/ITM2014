@@ -37,12 +37,6 @@ void compress(FILE* stream)
 	}
 }
 
-void printn(int number)
-{
-	if (number < 0) putchar('-');
-	printf("%d.%02d\n", abs(number/100), abs(number%100));
-}
-
 void decompress(FILE* stream)
 {
 	int number = 0;
@@ -65,7 +59,7 @@ void decompress(FILE* stream)
 			fread(&a, 2, 1, stream);
 		}
 		number += (int16_t)a;
-		printn(number);
+		printf("%d\n", number);
 		number = 0;
 	}
 }
