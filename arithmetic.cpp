@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <fstream>
+#include <cassert>
 
 std::vector<mpq_class> counts;
 std::vector<mpq_class> cumulativeCounts;
@@ -75,6 +76,52 @@ std::tuple<mpq_class, mpq_class, uint32_t> encode(std::istream& in)
     return std::tuple<mpq_class, mpq_class, uint32_t>(low, width, read);
 }
 
+std::tuple<mpq_class, mpq_class, uint32_t> encode2(const std::string& in, size_t start, size_t end, std::unordered_map<char, mpq_class>& limits, std::unordered_map<char, mpq_class>& widths)
+{
+	std::tuple<mpq_class, mpq_class, uint32_t> ret;
+	if (end-start > 1)
+	{
+		size_t middle = start+(end-start)/2;
+		auto left = encode2(in, start, middle, limits, widths);
+		auto right = encode2(in, middle, end, limits, widths);
+		std::get<0>(ret) = std::get<0>(left)+std::get<0>(right)*std::get<1>(left);
+		std::get<1>(ret) = std::get<1>(left)*std::get<1>(right);
+		std::get<2>(ret) = std::get<2>(left)+std::get<2>(left);
+		return ret;
+	}
+	if (end == start)
+	{
+		std::get<0>(ret) = 0;
+		std::get<1>(ret) = 1;
+		std::get<2>(ret) = 0;
+		return ret;
+	}
+	assert(end-start == 1);
+	std::get<0>(ret) = limits.at(in[start]);
+	std::get<1>(ret) = widths.at(in[start]);
+	std::get<2>(ret) = 1;
+	return ret;
+}
+
+std::tuple<mpq_class, mpq_class, uint32_t> encode2(std::istream& in)
+{
+    std::unordered_map<char, mpq_class> limits;
+    std::unordered_map<char, mpq_class> widths;
+    for (size_t i = 0; i < counts.size(); i++)
+    {
+        widths[bytes[i]] = counts[i]/totalCount;
+        limits[bytes[i]] = cumulativeCounts[i]/totalCount;
+    }
+    std::string str;
+    char a = in.get();
+    while (in.good())
+    {
+    	str += a;
+    	a = in.get();
+    }
+    return encode2(str, 0, str.size(), limits, widths);
+}
+
 void mpqToBytes(mpq_class pos, mpq_class width, std::ostream& out)
 {
 	pos += width*mpq_class(255, 256.0);
@@ -103,7 +150,7 @@ void writeLimits(std::ostream& out)
 void compress(std::istream& in, std::ostream& out)
 {
 	writeLimits(out);
-	auto x = encode(in);
+	auto x = encode2(in);
 	out.write((char*)&std::get<2>(x), 4);
 	mpqToBytes(std::get<0>(x), std::get<1>(x), out);
 }
