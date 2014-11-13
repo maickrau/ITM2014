@@ -86,7 +86,7 @@ std::tuple<mpq_class, mpq_class, uint32_t> encode2(const std::string& in, size_t
 		auto right = encode2(in, middle, end, limits, widths);
 		std::get<0>(ret) = std::get<0>(left)+std::get<0>(right)*std::get<1>(left);
 		std::get<1>(ret) = std::get<1>(left)*std::get<1>(right);
-		std::get<2>(ret) = std::get<2>(left)+std::get<2>(left);
+		std::get<2>(ret) = std::get<2>(left)+std::get<2>(right);
 		return ret;
 	}
 	if (end == start)
