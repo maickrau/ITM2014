@@ -4,6 +4,7 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <cstring>
 
 class BitWriter
 {
@@ -107,7 +108,13 @@ void BitWriter::flushWrite()
 class PaleoCompressor
 {
 public:
-	PaleoCompressor(BitWriter& write, FILE* read) : write(write), read(read), lastGenus() {};
+	PaleoCompressor(BitWriter& write, FILE* read) : write(write), read(read), lastGenus() 
+	{
+		memset(compressedBitsPart, 0, 14*sizeof(size_t));
+		compressedBitsAlphabet = 0;
+		compressedBitsNumber = 0;
+		compressedBitsMisc = 0;
+	};
 	void compress()
 	{
 		wasteFirstLine();
@@ -116,7 +123,26 @@ public:
 			compressLine();
 		}
 	};
+	void printDiagnostics()
+	{
+		std::cout << "parts:\n";
+		for (int i = 0; i < 14; i++)
+		{
+			std::cout << compressedBitsPart[i]/8 << "\n";
+		}
+		std::cout << "alphabet:\n";
+		std::cout << compressedBitsAlphabet/8 << "\n";
+		std::cout << "number:\n";
+		std::cout << compressedBitsNumber/8 << "\n";
+		std::cout << "misc:\n";
+		std::cout << compressedBitsMisc/8 << "\n";
+	};
 private:
+	size_t compressedBitsPart[14];
+	size_t compressedBitsAlphabet;
+	size_t compressedBitsNumber;
+	size_t compressedBitsMisc;
+	int currentPartCounter;
 	void wasteFirstLine()
 	{
 		char a = fgetc(read);
@@ -182,10 +208,12 @@ private:
 		write.writeBits((char*)&flags, 14);
 		write.writeBits((char*)&writeExtraFlags, 4);
 		write.writeBits((char*)&extraFlags, extraFlagPos);
+		currentPartCounter = 0;
 		compressName(parts[0], flags&1);
 		extraFlagPos = 0;
 		for (int i = 1; i < 10; i++)
 		{
+			currentPartCounter = i;
 			if (flags&(1<<(i)))
 			{
 				compressByteable(parts[i]);
@@ -197,12 +225,12 @@ private:
 			}
 			else
 			{
-				compressMisc(parts[i]);
 				extraFlagPos++;
 			}
 		}
 		for (int i = 10; i < 13; i++)
 		{
+			currentPartCounter = i;
 			if (flags&(1<<i))
 			{
 			}
@@ -213,10 +241,10 @@ private:
 			}
 			else
 			{
-				compressMisc(parts[i]);
 				extraFlagPos++;
 			}
 		}
+		currentPartCounter = 13;
 		if (flags&(1<<13))
 		{
 			compressByteable(parts[13]);
@@ -227,7 +255,6 @@ private:
 		}
 		else
 		{
-			compressMisc(parts[13]);
 		}
 	};
 	bool hasNameBit(std::string line)
@@ -245,6 +272,8 @@ private:
 	void compressAlphabetString(std::string str)
 	{
 		char size = str.size();
+		compressedBitsPart[currentPartCounter] += 6+5*size;
+		compressedBitsAlphabet += 6+5*size;
 		write.writeBits(&size, 6);
 		for (int i = 0; i < size; i++)
 		{
@@ -260,6 +289,8 @@ private:
 	void compressAnyString(std::string str)
 	{
 		char size = str.size();
+		compressedBitsPart[currentPartCounter] += 4+8*size;
+		compressedBitsMisc += 4+8*size;
 		write.writeBits(&size, 4);
 		for (int i = 0; i < size; i++)
 		{
@@ -336,10 +367,6 @@ private:
 	};
 	bool isNumerable(std::string line)
 	{
-		if (line.size() == 0)
-		{
-			return false;
-		}
 		int pos = 0;
 		while (pos < line.size())
 		{
@@ -354,6 +381,8 @@ private:
 	void compressNumber(std::string line)
 	{
 		unsigned char size = line.size();
+		compressedBitsPart[currentPartCounter] += 4;
+		compressedBitsNumber += 4;
 		write.writeBits((char*)&size, 4);
 		for (int i = 0; i < size; i++)
 		{
@@ -362,11 +391,24 @@ private:
 			{
 				writeThis = 0;
 			}
-			write.writeBits(&writeThis, 4);
+			if (writeThis < 4)
+			{
+				write.writeBits(&writeThis, 3);
+				compressedBitsPart[currentPartCounter] += 3;
+				compressedBitsNumber += 3;
+			}
+			else
+			{
+				writeThis |= 4;
+				write.writeBits(&writeThis, 4);
+				compressedBitsPart[currentPartCounter] += 4;
+				compressedBitsNumber += 4;
+			}
 		}
 	};
 	void compressByteable(std::string line)
 	{
+		compressedBitsPart[currentPartCounter] += 1;
 		unsigned char writeThis = 0;
 		int test = 0;
 		int pos = 0;
@@ -380,17 +422,6 @@ private:
 			pos++;
 		}
 		write.writeBits((char*)&writeThis, 8);
-	};
-	void compressMisc(std::string line)
-	{
-		std::string writeThis;
-		int pos = 0;
-		while (pos < line.size())
-		{
-			writeThis += line[pos];
-			pos++;
-		}
-		compressAnyString(writeThis);
 	};
 	BitWriter& write;
 	FILE* read;
@@ -530,7 +561,16 @@ private:
 		for (int i = 0; i < size; i++)
 		{
 			unsigned char next = 0;
-			in.readBits((char*)&next, 4);
+			in.readBits((char*)&next, 3);
+			if (next & 4)
+			{
+				unsigned char top = 0;
+				in.readBits((char*)&top, 1);
+				if (top)
+				{
+					next += 4;
+				}
+			}
 			if (next == 0)
 			{
 				ret += ',';
@@ -586,16 +626,7 @@ private:
 	};
 	std::string decompressMisc()
 	{
-		std::string ret;
-		char size = 0;
-		in.readBits(&size, 4);
-		for (int i = 0; i < size; i++)
-		{
-			char nextChar = 0;
-			in.readBits(&nextChar, 8);
-			ret += nextChar;
-		}
-		return ret;
+		return "#DIV/0!";
 	};
 	BitReader& in;
 	std::ostream& out;
@@ -613,6 +644,7 @@ int main(int argc, char** argv)
 		BitWriter writer {out};
 		PaleoCompressor comp {writer, in};
 		comp.compress();
+		comp.printDiagnostics();
 	}
 	else
 	{
