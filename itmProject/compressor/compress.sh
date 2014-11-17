@@ -1,5 +1,4 @@
-# dd ibs=1 skip=1 < curve1.dat > curve1_firstbyte.dat
-# head -c 1 < curve1.dat
+#!/bin/bash
 
 gcc compressor/numberdiff.c -o numberdiff.out
 g++ compressor/paleocompresser.cpp -std=c++0x -o paleocompresser.out
