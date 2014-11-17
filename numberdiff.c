@@ -1,3 +1,13 @@
+/***
+
+Encodes the difference between two numbers as 16-bit number
+
+gcc numberdiff.c -o numberdiff.out
+./numberdiff.out c compressed.out < curve1.dat
+./numberdiff.out d compressed.out > decompressed.out
+
+***/
+
 #include <stdio.h>
 #include <stdint.h>
 
