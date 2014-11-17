@@ -1,3 +1,27 @@
+/***
+
+Compresses the paleo data. Lots of stuff purposebuilt just for this specific data.
+
+Compile: g++ paleocompresser.cpp -std=c++11 -o paleocompressor.out
+or -std=c++0x in melkinkari
+
+Compress: ./paleocompressor.out c paleo.csv compressed.out
+Decompress: ./paleocompressor.out d compressed.out decompressed.out
+
+Data is compressed per row. Each column has two ways of decompressing it. Flags tell which one is used.
+
+First column: flag tells whether the genus is the same as the above row. Compresses either genus and species or just species as alphabetstrings.
+Second column: flag tells whether it's empty. Otherwise encoded as 12-bit number
+3.-9. columns: flag tells whether it's an integer in 0-255. Otherwise encoded as a numberstring
+10.-12. columns: flag tells whether it's two columns divided, #DIV/0! is a valid division. Otherwise encoded as a numberstring
+13. column: flag tells whether it's an integer in 0-255. Otherwise encoded as a numberstring
+
+A numberstring is [0-9,]*. Length is encoded as 3 or 4 bits and each number/comma is encoded as 3 or 4 bits.
+
+An alphabetstring is [a-z ]*. Length is encoded as 5 bits (note: max length is 39 because of holes), each alphabet is encoded as 5 bits.
+
+***/
+
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
@@ -236,7 +260,6 @@ private:
 		compressedBitsFlags += 14;
 		currentPartCounter = 0;
 		compressName(parts[0], flags&1);
-		// extraFlagPos = 0;
 		currentPartCounter = 1;
 		if (flags&2)
 		{
