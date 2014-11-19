@@ -8,6 +8,7 @@ or -std=c++0x in melkinkari
 Compress: ./paleocompressor.out c paleo.csv compressed.out
 Decompress: ./paleocompressor.out d compressed.out decompressed.out
 Compress with diagnostics: ./paleocompressor.out c paleo.csv compressed.out d
+Compress and print alphabet/numberstrings: ./paleocompressor.out c paleo.csv compressed.out alphabets.txt numbers.txt
 
 Data is compressed per row. Each column has two ways of decompressing it. Flags tell which one is used.
 
@@ -204,6 +205,8 @@ public:
 		}
 		std::cout << "\n";
 	};
+	std::string alphabetsToBeCompressed;
+	std::string numbersToBeCompressed;
 private:
 	size_t compressedBitsPart[14];
 	size_t compressedBitsAlphabet;
@@ -320,6 +323,7 @@ private:
 	};
 	void compressAlphabetString(std::string str)
 	{
+		alphabetsToBeCompressed += str;
 		char size = str.size();
 		if (size == 39)
 		{
@@ -435,6 +439,7 @@ private:
 	};
 	void compressNumber(std::string line)
 	{
+		numbersToBeCompressed += line;
 		unsigned char size = line.size();
 		if (size >= 2) size--;
 		if (size == 1)
@@ -724,12 +729,25 @@ int main(int argc, char** argv)
 			comp.printDiagnostics();
 		}
 	}
-	else
+	else if (*argv[1] == 'd')
 	{
 		FILE* in = fopen(argv[2], "rb");
 		std::ofstream out {argv[3]};
 		BitReader reader {in};
 		PaleoDecompressor decomp {reader, out};
 		decomp.decompress();
+	}
+	else if (*argv[1] == 's')
+	{
+		std::cout << "measure";
+		FILE* in = fopen(argv[2], "rb");
+		FILE* out = fopen(argv[3], "wb");
+		BitWriter writer {out};
+		PaleoCompressor comp {writer, in};
+		comp.compress();
+		std::ofstream alphabets{argv[4]};
+		alphabets << comp.alphabetsToBeCompressed;
+		std::ofstream numbers{argv[5]};
+		numbers << comp.numbersToBeCompressed;
 	}
 }
