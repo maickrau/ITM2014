@@ -3,11 +3,12 @@
 Compile with : g++ encodertest.cpp -o anyname.out
 
 Run : 
-To encode roma alphbets and space "name.out alphbets.txt"
-To encode numbers and comma "name.out numbers.txt"
+"name.out alphbets.txt" to encode roma alphbets and space 
+"name.out numbers.txt" to encode numbers and comma 
+
 Other symbols are not supported unless manually coded in program
 
-A not so automatic program to encode symbols because of the above reasons.
+A not so automatic program to encode symbols because of the above reason.
 
 The symbol and its corresponding code should be manually set.
 
