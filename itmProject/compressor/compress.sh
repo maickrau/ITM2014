@@ -3,10 +3,19 @@
 gcc compressor/numberdiff.c -o numberdiff.out
 g++ compressor/paleocompresser.cpp -std=c++0x -o paleocompresser.out
 
-if [ "$1" == "data/curve1.dat" ] 
+if [ "$1" == "data/curve1.dat" ]
 then
 	tr -d '.' < $1 | ./numberdiff.out c temp.temp
 	echo -n 1 > temp2.temp
+	cat temp.temp >> temp2.temp
+	cat temp2.temp
+fi
+
+if [ "$1" == "data/ty.txt" ]
+then
+	sed 's/^\(-*[0-9]*\.[0-9]\)$/\10/g' < $1 | sed 's/^\(-*[0-9]*\)$/\1.00/g' | sed 's/\.//g' > ty_fixed.temp
+	./numberdiff.out c temp.temp < ty_fixed.temp
+	echo -n 5 > temp2.temp
 	cat temp.temp >> temp2.temp
 	cat temp2.temp
 fi
@@ -26,7 +35,7 @@ then
 	cat temp2.temp
 fi
 
-if [ "$1" == "data/bucket.1.dat" ] 
+if [ "$1" == "data/bucket.1.dat" ] || [ "$1" == "data/bucket.2.dat" ] || [ "$1" == "data/monty_python_data_1.dat" ] 
 then
 	echo -n 4 > temp2.temp
 	cat $1 >> temp2.temp

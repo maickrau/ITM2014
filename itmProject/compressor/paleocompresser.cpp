@@ -8,14 +8,19 @@ or -std=c++0x in melkinkari
 Compress: ./paleocompressor.out c paleo.csv compressed.out
 Decompress: ./paleocompressor.out d compressed.out decompressed.out
 Compress with diagnostics: ./paleocompressor.out c paleo.csv compressed.out d
+Compress and print alphabet/numberstrings: ./paleocompressor.out c paleo.csv compressed.out alphabets.txt numbers.txt
 
 Data is compressed per row. Each column has two ways of decompressing it. Flags tell which one is used.
 
 First column: flag tells whether the genus is the same as the above row. Compresses either genus and species or just species as alphabetstrings.
 Second column: flag tells whether it's empty. Otherwise encoded as 12-bit number
-3.-9. columns: flag tells whether it's an integer in 0-255. Otherwise encoded as a numberstring
-10.-12. columns: flag tells whether it's two columns divided, #DIV/0! is a valid division. Otherwise encoded as a numberstring
-13. column: flag tells whether it's an integer in 0-255. Otherwise encoded as a numberstring
+3. column: flag tells whether it's 4-bit or 8-bit integer
+4.-7. columns: are compressed as an integer and a comma
+8. column: flag tells whether it's "0"
+9. column: flag tells whether it's 4-bit or 6-bit integer
+10. column: flag tells whether it's the same as the third column
+11.-13. columns: flag tells whether it's two columns divided, #DIV/0! is a valid division. Otherwise encoded as a numberstring
+14. column: flag tells whether it's (dm/(dm-ah))^2. Otherwise numberstring.
 
 A numberstring is [0-9,]*. Length is encoded as 3 or 4 bits and each number/comma is encoded as 3 or 4 bits.
 
@@ -30,6 +35,7 @@ An alphabetstring is [a-z ]*. Length is encoded as 5 bits (note: max length is 3
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <sstream>
 
 class BitWriter
 {
@@ -147,18 +153,22 @@ public:
 		memset(hasNumber, 0, 11*sizeof(bool));
 		memset(hasAlphabet, 0, 39*sizeof(bool));
 		compressedBitsAlphabet = 0;
+		compressedBitsAlphabetLengths = 0;
+		compressedBitsNumberLengths = 0;
 		compressedBitsNumber = 0;
 		compressedBitsByteable = 0;
 		compressedBitsFlags = 0;
 		compressedBitsShortable = 0;
+		compressedBitsLobes = 0;
+		compressedBitsMaxDm = 0;
 		maxNumberLen = 0;
 		maxAlphabetLen = 0;
 	};
 	void compress()
 	{
-		wasteFirstLine();
+		wasteLine();
 		int lineNum = 0;
-		while (!feof(read))
+		for (int i = 0; i < 4128; i++)
 		{
 			compressLine(lineNum);
 			lineNum++;
@@ -177,12 +187,18 @@ public:
 		std::cout << "writer: " << write.written()/8 << "\n";
 		std::cout << "flags:\n";
 		std::cout << compressedBitsFlags/8 << "\n";
+		std::cout << "lobes:\n";
+		std::cout << compressedBitsLobes/8 << "\n";
+		std::cout << "maxDm:\n";
+		std::cout << compressedBitsMaxDm/8 << "\n";
 		std::cout << "byteable:\n";
 		std::cout << compressedBitsByteable/8 << "\n";
 		std::cout << "shortable:\n";
 		std::cout << compressedBitsShortable/8 << "\n";
 		std::cout << "alphabet:\n";
 		std::cout << compressedBitsAlphabet/8 << "\n";
+		std::cout << "alphabet lengths:\n";
+		std::cout << compressedBitsAlphabetLengths/8 << "\n";
 		std::cout << "max alphabet: " << maxAlphabetLen << "\n";
 		for (int i = 0 ; i < 40; i++)
 		{
@@ -194,6 +210,8 @@ public:
 		std::cout << "\n";
 		std::cout << "number:\n";
 		std::cout << compressedBitsNumber/8 << "\n";
+		std::cout << "number lengths:\n";
+		std::cout << compressedBitsNumberLengths/8 << "\n";
 		std::cout << "max number: " << maxNumberLen << "\n";
 		for (int i = 0; i < 12; i++)
 		{
@@ -204,6 +222,8 @@ public:
 		}
 		std::cout << "\n";
 	};
+	std::string alphabetsToBeCompressed;
+	std::string numbersToBeCompressed;
 private:
 	size_t compressedBitsPart[14];
 	size_t compressedBitsAlphabet;
@@ -211,6 +231,10 @@ private:
 	size_t compressedBitsByteable;
 	size_t compressedBitsFlags;
 	size_t compressedBitsShortable;
+	size_t compressedBitsAlphabetLengths;
+	size_t compressedBitsNumberLengths;
+	size_t compressedBitsLobes;
+	size_t compressedBitsMaxDm;
 	int currentPartCounter;
 	int maxNumberLen;
 	int maxAlphabetLen;
@@ -218,7 +242,7 @@ private:
 	bool hasAlphabet[40];
 	int numberCount[12];
 	int alphabetCount[40];
-	void wasteFirstLine()
+	void wasteLine()
 	{
 		char a = fgetc(read);
 		while (a != '\n')
@@ -228,6 +252,11 @@ private:
 	};
 	void compressLine(int lineNum)
 	{
+		if (lineNum == 3880)
+		{
+			wasteLine();
+			return;
+		}
 		std::string parts[14];
 		int currentPart = 0;
 		char a = fgetc(read);
@@ -245,16 +274,24 @@ private:
 		int flags = 0;
 		flags |= hasNameBit(parts[0]);
 		flags |= (parts[1] == "") << 1;
-		for (int i = 2; i < 10; i++)
+		flags |= hasMaxDmBit(parts[2])<<2;
+		for (int i = 3; i < 7; i++)
 		{
 			flags |= isByteable(parts[i])<<(i);
 		}
+		flags |= (parts[7] == "0")<<7;
+		flags |= hasLobeBit(parts[8])<<8;
+		flags |= (parts[9] == parts[2])<<9;
 		flags |= isFloatable(parts[4], parts[3], parts[10])<<10;
 		flags |= isFloatable(parts[4], parts[5], parts[11])<<11;
 		flags |= isFloatable(parts[6], parts[3], parts[12])<<12;
-		flags |= isByteable(parts[13]) << 13;
-		write.writeBits((char*)&flags, 14);
-		compressedBitsFlags += 14;
+		flags |= isWhorlable(parts[3], parts[7], parts[13])<<13;
+
+		flags = (flags&7) | (((flags>>7)&255)<<3);
+
+		write.writeBits((char*)&flags, 10);
+
+		compressedBitsFlags += 10;
 		currentPartCounter = 0;
 		compressName(parts[0], flags&1);
 		currentPartCounter = 1;
@@ -265,22 +302,35 @@ private:
 		{
 			compressShortable(parts[1]);
 		}
-		for (int i = 2; i < 10; i++)
+		currentPartCounter = 2;
+		compressMaxDm(parts[2], flags&4);
+		for (int i = 3; i < 7; i++)
 		{
 			currentPartCounter = i;
-			if (flags&(1<<(i)))
-			{
-				compressByteable(parts[i]);
-			}
-			else
-			{
-				compressNumber(parts[i]);
-			}
+			compressByteable(parts[i]);
+		}
+		currentPartCounter = 7;
+		if (flags&(1<<3))
+		{
+		}
+		else
+		{
+			compressNumber(parts[7]);
+		}
+		currentPartCounter = 8;
+		compressLobe(parts[8], flags&(1<<4));
+		currentPartCounter = 9;
+		if (flags&(1<<5))
+		{
+		}
+		else
+		{
+			compressNumber(parts[9]);
 		}
 		for (int i = 10; i < 13; i++)
 		{
 			currentPartCounter = i;
-			if (flags&(1<<i))
+			if (flags&(1<<(i-4)))
 			{
 			}
 			else
@@ -289,15 +339,86 @@ private:
 			}
 		}
 		currentPartCounter = 13;
-		if (flags&(1<<13))
+		if (flags&(1<<9))
 		{
-			compressByteable(parts[13]);
 		}
 		else
 		{
 			compressNumber(parts[13]);
 		}
 	};
+	bool hasLobeBit(std::string str)
+	{
+		if (str == "")
+		{
+			return true;
+		}
+		int num = atoi(str.c_str());
+		return num < 17;
+	}
+	void compressLobe(std::string str, bool lobeBit)
+	{
+		unsigned int num = 0;
+		if (str == "")
+		{
+			compressedBitsPart[currentPartCounter] += 4;
+			compressedBitsLobes += 4;
+			write.writeBits((char*)&num, 4);
+			return;
+		}
+		num = atoi(str.c_str());
+		num--;
+		if (lobeBit)
+		{
+			compressedBitsPart[currentPartCounter] += 4;
+			compressedBitsLobes += 4;
+			write.writeBits((char*)&num, 4);
+		}
+		else
+		{
+			compressedBitsPart[currentPartCounter] += 6;
+			compressedBitsLobes += 6;
+			write.writeBits((char*)&num, 6);
+		}
+	}
+	bool hasMaxDmBit(std::string str)
+	{
+		int num = atoi(str.c_str());
+		if (num < 19)
+		{
+			return true;
+		}
+		return false;
+	}
+	void compressMaxDm(std::string str, bool hasBit)
+	{
+		unsigned int num = atoi(str.c_str());
+		if (num > 0)
+		{
+			num -= 3;
+		}
+		if (hasBit)
+		{
+			write.writeBits((char*)&num, 4);
+			compressedBitsPart[currentPartCounter] += 4;
+			compressedBitsMaxDm += 4;
+		}
+		else
+		{
+			if (num == 270) num = 223;
+			if (num == 282) num = 224;
+			if (num == 287) num = 225;
+			if (num == 297) num = 226;
+			if (num == 347) num = 227;
+			if (num == 397) num = 228;
+			if (num == 477) num = 229;
+			if (num == 497) num = 230;
+			if (num == 597) num = 231;
+			write.writeBits((char*)&num, 8);
+			compressedBitsPart[currentPartCounter] += 8;
+			compressedBitsMaxDm += 8;
+		}
+	}
 	void compressShortable(std::string str)
 	{
 		compressedBitsPart[currentPartCounter] += 13;
@@ -320,6 +441,7 @@ private:
 	};
 	void compressAlphabetString(std::string str)
 	{
+		alphabetsToBeCompressed += str;
 		char size = str.size();
 		if (size == 39)
 		{
@@ -330,7 +452,8 @@ private:
 		if (size >= 25) size -= 3;
 		if (size >= 1) size--;
 		compressedBitsPart[currentPartCounter] += 5+5*str.size();
-		compressedBitsAlphabet += 5+5*str.size();
+		compressedBitsAlphabet += 5*str.size();
+		compressedBitsAlphabetLengths += 5;
 		write.writeBits(&size, 5);
 		if (size > maxAlphabetLen)
 		{
@@ -382,19 +505,46 @@ private:
 		int pos = 0;
 		while (pos < line.size())
 		{
+			if (line[pos] == ',')
+			{
+				pos++;
+				continue;
+			}
 			if (line[pos] < '0' || line[pos] > '9')
 			{
 				return false;
 			}
 			num *= 10;
 			num += line[pos]-'0';
-			if (num >= 256)
-			{
-				return false;
-			}
 			pos++;
 		}
+		if (num >= 8192 && num != 8722)
+		{
+			return false;
+		}
 		return true;
+	};
+	bool isWhorlable(std::string line1, std::string line2, std::string line3)
+	{
+		if (!isNumerable(line1) || !isNumerable(line2) || !isNumerable(line3))
+		{
+			return false;
+		}
+		if (line1.size() < 1 || line2.size() < 1 || line3.size() < 1)
+		{
+			return false;
+		}
+		line1 = strReplace(line1, ',', '.');
+		line2 = strReplace(line2, ',', '.');
+		line3 = strReplace(line3, ',', '.');
+		double a = atof(line1.c_str());
+		double b = atof(line2.c_str());
+		b = a-b;
+		double c = a/b;
+		c *= c;
+		char cmp[20] {0};
+		sprintf(cmp, "%.9f", c);
+		return line3 == cmp;
 	};
 	bool isFloatable(std::string line1, std::string line2, std::string line3)
 	{
@@ -406,7 +556,7 @@ private:
 		{
 			return false;
 		}
-		if (line1.size() < 2 || line2.size() < 2 || line3.size() < 2)
+		if (line1.size() < 1 || line2.size() < 1 || line3.size() < 1)
 		{
 			return false;
 		}
@@ -435,8 +585,8 @@ private:
 	};
 	void compressNumber(std::string line)
 	{
+		numbersToBeCompressed += line;
 		unsigned char size = line.size();
-		if (size >= 2) size--;
 		if (size == 1)
 		{
 			size = 10;
@@ -455,14 +605,14 @@ private:
 		{
 			write.writeBits((char*)&size, 3);
 			compressedBitsPart[currentPartCounter] += 3;
-			compressedBitsNumber += 3;
+			compressedBitsNumberLengths += 3;
 		}
 		else
 		{
 			size |= 4;
 			write.writeBits((char*)&size, 4);
 			compressedBitsPart[currentPartCounter] += 4;
-			compressedBitsNumber += 4;
+			compressedBitsNumberLengths += 4;
 		}
 		for (int i = 0; i < line.size(); i++)
 		{
@@ -488,21 +638,64 @@ private:
 	};
 	void compressByteable(std::string line)
 	{
-		compressedBitsPart[currentPartCounter] += 8;
-		compressedBitsByteable += 8;
-		unsigned char writeThis = 0;
+		if (line == "87,22")
+		{
+			unsigned int writeThis = 1;
+			write.writeBits((char*)&writeThis, 2);
+			writeThis = 3;
+			write.writeBits((char*)&writeThis, 2);
+			compressedBitsPart[currentPartCounter] += 4;
+			compressedBitsByteable += 4;
+			return;
+		}
+		unsigned int writeThis = 0;
 		int test = 0;
 		int pos = 0;
+		unsigned int commaPos = line.size()-1;
 		while (pos < line.size())
 		{
-			test *= 10;
-			test += line[pos]-'0';
-			assert(test < 256);
+			if (line[pos] == ',')
+			{
+				commaPos = pos;
+				pos++;
+				continue;
+			}
 			writeThis *= 10;
 			writeThis += line[pos]-'0';
 			pos++;
 		}
-		write.writeBits((char*)&writeThis, 8);
+		commaPos = line.size()-1-commaPos;
+		assert(commaPos < 4);
+		assert(writeThis < 8192);
+		if (writeThis == 0)
+		{
+			write.writeBits((char*)&writeThis, 2);
+			compressedBitsPart[currentPartCounter] += 2;
+			compressedBitsByteable += 2;
+			return;
+		}
+		int writeBits = 8;
+		unsigned int flags = 0;
+		if (writeThis < 128)
+		{
+			flags = 1;
+			writeBits = 7;
+		}
+		else if (writeThis < 1024)
+		{
+			flags = 2;
+			writeBits = 10;
+		}
+		else if (writeThis < 8192)
+		{
+			flags = 3;
+			writeBits = 13;
+		}
+		write.writeBits((char*)&flags, 2);
+		write.writeBits((char*)&commaPos, 2);
+		write.writeBits((char*)&writeThis, writeBits);
+		compressedBitsPart[currentPartCounter] += 4+writeBits;
+		compressedBitsByteable += 4+writeBits;
 	};
 	BitWriter& write;
 	FILE* read;
@@ -526,6 +719,17 @@ private:
 	{
 		out << ";;max dm;dm;ww;wh;uw;ah;lobes;max dm;ww/dm;ww/wh;uw/dm;WER\n";
 	}
+	void decompressPossibleWhorl(int flags, int pos, std::string dm, std::string ah)
+	{
+		if (flags&(1<<pos))
+		{
+			dewhorl(dm, ah);
+		}
+		else
+		{
+			out << decompressNumber();
+		}
+	}
 	void decompressPossibleFloat(int flags, int pos, std::string up, std::string down)
 	{
 		if (flags&(1<<pos))
@@ -537,6 +741,20 @@ private:
 			out << decompressNumber();
 		}
 		out << ";";
+	}
+	void dewhorl(std::string dm, std::string ah)
+	{
+		dm = strReplace(dm, ',', '.');
+		ah = strReplace(ah, ',', '.');
+		double a = atof(dm.c_str());
+		double b = atof(ah.c_str());
+		b = a-b;
+		double c = a/b;
+		c *= c;
+		char outStr[20] {0};
+		sprintf(outStr, "%1.9f", c);
+		std::string val = strReplace(std::string(outStr), '.', ',');
+		out << val;
 	}
 	void defloat(std::string left, std::string right)
 	{
@@ -557,8 +775,15 @@ private:
 	}
 	void decompressLine(int lineNum)
 	{
+		if (lineNum == 3880)
+		{
+			out << "kangastus tuominen;1453;;;;;;;;;;;;\n";
+			return;
+		}
+
 		int flags = 0;
-		in.readBits((char*)&flags, 14);
+		in.readBits((char*)&flags, 10);
+
 		if (flags&1)
 		{
 			lastGenus = decompressAlphabet();
@@ -575,35 +800,97 @@ private:
 			decompressShortable();
 		}
 		std::string parts[10];
-		for (int i = 2; i < 10; i++)
+		parts[2] = decompressMaxDm(flags&4);
+		out << parts[2] << ";";
+		for (int i = 3; i < 7; i++)
 		{
-			if (flags&(1<<i))
-			{
-				parts[i] = decompressByte();
-			}
-			else
-			{
-				parts[i] = decompressNumber();
-			}
+			parts[i] = decompressByte();
 			out << parts[i];
-			if (i != 13)
-			{
-				out << ";";
-			}
+			out << ";";
 		}
-		decompressPossibleFloat(flags, 10, parts[4], parts[3]);
-		decompressPossibleFloat(flags, 11, parts[4], parts[5]);
-		decompressPossibleFloat(flags, 12, parts[6], parts[3]);
-		if (flags&(1<<13))
+		if (flags&(1<<3))
 		{
-			out << decompressByte();
+			parts[7] = "0";
+		}
+		else
+		{
+			parts[7] = decompressNumber();
+		}
+		out << parts[7];
+		out << ";";
+		parts[8] = decompressLobe(flags&(1<<4));
+		out << parts[8];
+		out << ";";
+		if (flags&(1<<5))
+		{
+			out << parts[2];
 		}
 		else
 		{
 			out << decompressNumber();
 		}
+		out << ";";
+		decompressPossibleFloat(flags, 6, parts[4], parts[3]);
+		decompressPossibleFloat(flags, 7, parts[4], parts[5]);
+		decompressPossibleFloat(flags, 8, parts[6], parts[3]);
+		decompressPossibleWhorl(flags, 9, parts[3], parts[7]);
 		out << "\n";
 	};
+	std::string decompressLobe(bool hasBit)
+	{
+		unsigned int num = 0;
+		if (hasBit)
+		{
+			in.readBits((char*)&num, 4);
+		}
+		else
+		{
+			in.readBits((char*)&num, 6);
+		}
+		if (num > 0)
+		{
+			num++;
+		}
+		if (num == 0)
+		{
+			return "";
+		}
+		std::stringstream stream;
+		stream << num;
+		std::string ret;
+		stream >> ret;
+		return ret;
+	}
+	std::string decompressMaxDm(bool hasBit)
+	{
+		unsigned int num = 0;
+		if (hasBit)
+		{
+			in.readBits((char*)&num, 4);
+		}
+		else
+		{
+			in.readBits((char*)&num, 8);
+			if (num == 223) num = 270;
+			if (num == 224) num = 282;
+			if (num == 225) num = 287;
+			if (num == 226) num = 297;
+			if (num == 227) num = 347;
+			if (num == 228) num = 397;
+			if (num == 229) num = 477;
+			if (num == 230) num = 497;
+			if (num == 231) num = 597;
+		}
+		if (num > 0)
+		{
+			num += 3;
+		}
+		std::stringstream stream;
+		stream << num;
+		std::string ret;
+		stream >> ret;
+		return ret;
+	}
 	void decompressShortable()
 	{
 		int readHere = 0;
@@ -632,7 +919,6 @@ private:
 		{
 			size = 1;
 		}
-		if (size >= 2) size++;
 		for (int i = 0; i < size; i++)
 		{
 			unsigned char next = 0;
@@ -684,24 +970,57 @@ private:
 	};
 	std::string decompressByte()
 	{
-		unsigned char num = 0;
-		in.readBits((char*)&num, 8);
-		std::string ret;
-		if (num > 99)
+		unsigned char mode = 0;
+		in.readBits((char*)&mode, 2);
+		if (mode == 0)
 		{
-			ret += '0'+num/100;
-			num %= 100;
-			if (num < 10)
+			return "0";
+		}
+		unsigned int commaPos = 0;
+		in.readBits((char*)&commaPos, 2);
+		if (mode == 1 && commaPos == 3)
+		{
+			return "87,22";
+		}
+		unsigned int num = 0;
+		if (mode == 1)
+		{
+			in.readBits((char*)&num, 7);
+		}
+		if (mode == 2)
+		{
+			in.readBits((char*)&num, 10);
+		}
+		if (mode == 3)
+		{
+			in.readBits((char*)&num, 13);
+		}
+		std::string ret;
+
+		std::stringstream stream;
+		stream << num;
+		stream >> ret;
+		if (commaPos > 0)
+		{
+			if (commaPos == ret.size())
 			{
-				ret += "0";
+				ret = "0,"+ret;
+			}
+			else if (commaPos > ret.size())
+			{
+				std::string temp = ret;
+				ret = "0,";
+				for (int i = 0; i < commaPos-temp.size(); i++)
+				{
+					ret += "0";
+				}
+				ret += temp;
+			}
+			else
+			{
+				ret = ret.substr(0, ret.size()-commaPos)+','+ret.substr(ret.size()-commaPos, commaPos);
 			}
 		}
-		if (num > 9)
-		{
-			ret += '0'+num/10;
-			num %= 10;
-		}
-		ret += '0'+num;
 		return ret;
 	};
 	BitReader& in;
@@ -724,12 +1043,25 @@ int main(int argc, char** argv)
 			comp.printDiagnostics();
 		}
 	}
-	else
+	else if (*argv[1] == 'd')
 	{
 		FILE* in = fopen(argv[2], "rb");
 		std::ofstream out {argv[3]};
 		BitReader reader {in};
 		PaleoDecompressor decomp {reader, out};
 		decomp.decompress();
+	}
+	else if (*argv[1] == 's')
+	{
+		std::cout << "measure";
+		FILE* in = fopen(argv[2], "rb");
+		FILE* out = fopen(argv[3], "wb");
+		BitWriter writer {out};
+		PaleoCompressor comp {writer, in};
+		comp.compress();
+		std::ofstream alphabets{argv[4]};
+		alphabets << comp.alphabetsToBeCompressed;
+		std::ofstream numbers{argv[5]};
+		numbers << comp.numbersToBeCompressed;
 	}
 }
