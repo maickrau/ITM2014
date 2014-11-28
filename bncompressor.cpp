@@ -21,6 +21,7 @@ todo: encode network, improve running time (now compresses in 3min, decompresses
 #include <cassert>
 #include <map>
 #include <set>
+#include <ctime>
 
 int DEBUG_CARAVAN_LINES = 500;
 
@@ -120,17 +121,22 @@ public:
 	};
 	int getSymbol(const Distribution& dist)
 	{
-		for (size_t i = 0; i < dist.size(); i++)
+		int index = findSymbol(dist);
+		location -= dist.lowerBound(index);
+		location /= dist.getProbability(index);
+		return index;
+	};
+private:
+	int findSymbol(const Distribution& dist)
+	{
+		for (int i = 0; i < dist.size(); i++)
 		{
-			if (location >= dist.lowerBound(i) && location < dist.upperBound(i))
+			if (location < dist.upperBound(i))
 			{
-				location -= dist.lowerBound(i);
-				location /= dist.getProbability(i);
 				return i;
 			}
 		}
-	};
-private:
+	}
 	mpq_class location;
 };
 
@@ -317,11 +323,8 @@ public:
 	}
 	std::vector<unsigned char> encodeDataset(const ColumnSet& datas)
 	{
-		ArithmeticEncoder encoder;
-		for (int i = 0; i < nodes.size(); i++)
-		{
-			encoder.encode(encodeNode(datas, i));
-		}
+		ArithmeticEncoder encoder = encodeDatasetRec(datas, 0, nodes.size());
+		std::cerr << "encode bytes\n";
 		return encoder.getBytes();
 	}
 	ColumnSet decodeBytes(const std::vector<unsigned char>& bytes, int rows)
@@ -330,7 +333,11 @@ public:
 		ArithmeticDecoder decoder {bytes};
 		for (int i = 0; i < nodes.size(); i++)
 		{
+			std::cerr << "decode " << i << "/" << nodes.size() << " ";
+			unsigned int timeStart = clock();
 			decodeNode(ret, decoder, i);
+			unsigned int timeEnd = clock();
+			std::cerr << timeEnd-timeStart << "\n";
 		}
 		return ret;
 	}
@@ -347,16 +354,34 @@ public:
 		}
 	}
 private:
+	ArithmeticEncoder encodeDatasetRec(const ColumnSet& datas, int startNode, int endNode)
+	{
+		if (endNode == startNode)
+		{
+			return ArithmeticEncoder();
+		}
+		if (endNode == startNode+1)
+		{
+			std::cerr << "encode node " << startNode << "\n";
+			return encodeNode(datas, startNode);
+		}
+		int middle = (endNode-startNode)/2+startNode;
+		ArithmeticEncoder left = encodeDatasetRec(datas, startNode, middle);
+		ArithmeticEncoder right = encodeDatasetRec(datas, middle, endNode);
+		left.encode(right);
+		return left;
+	}
 	void decodeNode(ColumnSet& out, ArithmeticDecoder& decoder, int node)
 	{
 		std::vector<int> columns = nodes[node].parents;
 		ColumnSet limitedSet = out.getColumns(columns);
+		std::vector<int> values;
+		values.resize(limitedSet.columns());
 		for (int i = 0; i < out.rows(); i++)
 		{
-			std::vector<int> values;
 			for (int a = 0; a < limitedSet.columns(); a++)
 			{
-				values.push_back(limitedSet[a][i]);
+				values[a] = limitedSet[a][i];
 			}
 			int* columnsP = columns.data();
 			int* vals = values.data();
@@ -370,16 +395,30 @@ private:
 		std::vector<int> columns = nodes[node].parents;
 		columns.insert(columns.begin(), nodes[node].ownVariable);
 		ColumnSet limitedSet = datas.getColumns(columns);
-		for (int i = 0; i < datas.rows(); i++)
+		return encodeNodeRec(limitedSet, node, 0, datas.rows());
+	}
+	ArithmeticEncoder encodeNodeRec(const ColumnSet& datas, int node, int startRow, int endRow)
+	{
+		if (startRow+1 == endRow)
 		{
+			ArithmeticEncoder encoder;
 			std::vector<int> values;
-			for (int a = 1; a < limitedSet.columns(); a++)
+			for (int a = 1; a < datas.columns(); a++)
 			{
-				values.push_back(limitedSet[a][i]);
+				values.push_back(datas[a][startRow]);
 			}
-			encoder.encode(nodes[node].parameters.getDistribution(values), limitedSet[0][i]);
+			encoder.encode(nodes[node].parameters.getDistribution(values), datas[0][startRow]);
+			return encoder;
 		}
-		return encoder;
+		if (startRow == endRow)
+		{
+			return ArithmeticEncoder();
+		}
+		int middle = (endRow-startRow)/2+startRow;
+		ArithmeticEncoder left = encodeNodeRec(datas, node, startRow, middle);
+		ArithmeticEncoder right = encodeNodeRec(datas, node, middle, endRow);
+		left.encode(right);
+		return left;
 	}
 	std::vector<BayesNode> nodes;
 };
@@ -623,9 +662,11 @@ int caravanMode(char** argv)
 	if (*argv[1] == 'c')
 	{
 		ColumnSet data = readCaravan(argv[2], argv[3]);
+		std::cerr << "make network\n";
 		BayesNetwork net = makeDefaultNetwork(data);
 
 		std::vector<unsigned char> bytes = net.encodeDataset(data);
+		std::cerr << "got bytes\n";
 		std::ofstream out {argv[4], std::ios::binary};
 		uint32_t size = bytes.size();
 		out.write((char*)&size, 4);
@@ -634,9 +675,11 @@ int caravanMode(char** argv)
 	else
 	{
 		ColumnSet data = readCaravan(argv[2], argv[3]);
+		std::cerr << "make network\n";
 		BayesNetwork net = makeDefaultNetwork(data);
 
 		std::vector<unsigned char> bytes = getFileBytes(argv[4]);
+		std::cerr << "got bytes\n";
 		uint32_t size;
 		memcpy(&size, bytes.data(), 4);
 		bytes.erase(bytes.begin(), bytes.begin()+4);
