@@ -5,11 +5,14 @@ Caravan compressor using a bayesian network and arithmetic coding.
 g++ bncompressor.cpp -std=c++11 -o bncompressor.out -lgmp
 
 compress
-./bncompressor.out c caravan.dat caravan.sdat compressed.out decompressed.out 5822
+./bncompressor.out c caravan.dat caravan.sdat compressed.out decompressed.out 5822 network.out
 decompress
-./bncompressor.out d caravan.dat caravan.sdat compressed.out decompressed.out 5822
+./bncompressor.out d caravan.dat caravan.sdat compressed.out decompressed.out 5822 network.out
 
-todo: encode network, improve running time (now compresses in 3min, decompresses in 6min)
+todo: figure out a better BN network
+
+Decompression is very slow compared to compression. Slowness is caused by the arbitrary-precision arithmetic used in the arithmetic encoder/decoder.
+Arithmetic encoder encodes the symbols recursively, time is about 20s. Decoder doesn't (can't?) use this method, and takes about 6min.
 
 ***/
 
@@ -22,27 +25,41 @@ todo: encode network, improve running time (now compresses in 3min, decompresses
 #include <map>
 #include <set>
 #include <ctime>
+#include <sstream>
 
 int DEBUG_CARAVAN_LINES = 500;
+
+int wroteBytesDistribution = 0;
+int wroteBytesParameters = 0;
+int wroteBytesNetwork = 0;
 
 class Distribution
 {
 public:
+	Distribution() {};
 	Distribution(const std::vector<int>& counts) : probabilities(), cumulativeProbabilities()
 	{
-		int sum = 0;
-		for (int i = 0; i < counts.size(); i++)
-		{
-			sum += counts[i];
-		}
-		int cumulativeCounts = 0;
-		for (size_t i = 0; i < counts.size(); i++)
-		{
-			cumulativeCounts += counts[i];
-			probabilities.emplace_back(counts[i], sum);
-			cumulativeProbabilities.emplace_back(cumulativeCounts, sum);
-		}
+		makeDistribution(counts);
 	};
+	Distribution(const std::vector<unsigned char>& bytes, int& loc)
+	{
+		int nonZeroes = bytes[loc];
+		loc += 1;
+		std::vector<int> counts;
+		for (int i = 0; i < nonZeroes; i++)
+		{
+			int pos = bytes[loc]*256+bytes[loc+1];
+			loc += 2;
+			int count = bytes[loc];
+			loc += 1;
+			if (counts.size() <= pos)
+			{
+				counts.resize(pos+1);
+			}
+			counts[pos] = count;
+		}
+		makeDistribution(counts);
+	}
 	mpq_class lowerBound(int symbol) const
 	{
 		if (symbol == 0)
@@ -63,7 +80,74 @@ public:
 	{
 		return probabilities.size();
 	}
+	int originalCount(int i) const
+	{
+		return originalCounts[i];
+	}
+	void encodeBytes(std::vector<unsigned char>& bytes)
+	{
+		int nonZeroes = 0;
+		for (int i = 0; i < originalCounts.size(); i++)
+		{
+			if (originalCounts[i] > 0)
+			{
+				nonZeroes++;
+			}
+		}
+		assert(nonZeroes < 256);
+		bytes.push_back(nonZeroes);
+		for (int i = 0; i < originalCounts.size(); i++)
+		{
+			if (originalCounts[i] > 0)
+			{
+				assert(i < 65536);
+				bytes.push_back(i/256);
+				bytes.push_back(i%256);
+				assert(originalCounts[i] < 256);
+				bytes.push_back(originalCounts[i]);
+			}
+		}
+		wroteBytesDistribution += nonZeroes*3+1;
+	}
+	int maxCount;
 private:
+	void makeDistribution(std::vector<int> counts)
+	{
+		int largest = 0;
+		for (int i = 0; i < counts.size(); i++)
+		{
+			if (counts[i] > largest)
+			{
+				largest = counts[i];
+			}
+		}
+		for (int i = 0; i < counts.size(); i++)
+		{
+			if (counts[i] > 0)
+			{
+				counts[i] = ((double)counts[i]/(double)largest)*254+1;
+			}
+		}
+		originalCounts = counts;
+		int sum = 0;
+		maxCount = 0;
+		for (int i = 0; i < counts.size(); i++)
+		{
+			if (counts[i] > maxCount)
+			{
+				maxCount = counts[i];
+			}
+			sum += counts[i];
+		}
+		int cumulativeCounts = 0;
+		for (size_t i = 0; i < counts.size(); i++)
+		{
+			cumulativeCounts += counts[i];
+			probabilities.emplace_back(counts[i], sum);
+			cumulativeProbabilities.emplace_back(cumulativeCounts, sum);
+		}
+	}
+	std::vector<int> originalCounts;
 	std::vector<mpq_class> probabilities;
 	std::vector<mpq_class> cumulativeProbabilities;
 };
@@ -219,31 +303,222 @@ private:
 	std::vector<std::vector<int>> cells;
 };
 
+int fac(int n)
+{
+	if (n == 0)
+	{
+		return 1;
+	}
+	return n*fac(n-1);
+}
+
 class BayesParameters
 {
 public:
 	BayesParameters() {};
-	BayesParameters(std::map<std::vector<int>, Distribution> params) : parameters(params) {};
-	BayesParameters(const ColumnSet& data, std::vector<int> parents, int thisNode) : parameters()
+	BayesParameters(const ColumnSet& data, std::vector<int> parents, int thisNode) : nodes()
 	{
 		learn(data, parents, thisNode);
 	};
+	BayesParameters(const std::vector<unsigned char>& bytes, int& loc)
+	{
+		int size = bytes[loc]*256+bytes[loc+1];
+		loc += 2;
+		for (int i = 0; i < size; i++)
+		{
+			nodes.emplace_back();
+			int childrenSize = bytes[loc]*256+bytes[loc+1];
+			loc += 2;
+			if (childrenSize == 0)
+			{
+				nodes.back().leaf = Distribution(bytes, loc);
+			}
+			else
+			{
+				for (int a = 0; a < childrenSize; a++)
+				{
+					int value = bytes[loc]*256+bytes[loc+1];
+					loc += 2;
+					int child = bytes[loc]*256+bytes[loc+1];
+					loc += 2;
+					nodes.back().children.emplace(value, child);
+				}
+				nodes.back().testsVariable = bytes[loc];
+				loc++;
+			}
+		}
+	}
 	const Distribution& getDistribution(const std::vector<int>& parents)
 	{
-		auto found = parameters.find(parents);
-		if (found != parameters.end())
+		int node = 0;
+		while (!nodes[node].children.empty())
 		{
-			return found->second;
+			node = nodes[node].children[parents[nodes[node].testsVariable]];
 		}
-		assert(false);
+		return nodes[node].leaf;
 	}
 	void learn(const ColumnSet& data, std::vector<int> parents, int thisNode)
 	{
 		parents.insert(parents.begin(), thisNode);
 		ColumnSet relevantColumns = data.getColumns(parents);
-		parameters = learnDistributions(relevantColumns);
+		std::map<std::vector<int>, Distribution> parameters = learnDistributions(relevantColumns);
+		makeTree(parameters, permutation(parameters.begin()->first.size(), 0));
+		// makeBestTree(parameters);
+	}
+	int maxCount()
+	{
+		int maxC = 0;
+		for (auto i = 0; i < nodes.size(); i++)
+		{
+			if (nodes[i].leaf.maxCount > maxC)
+			{
+				maxC = nodes[i].leaf.maxCount;
+			}
+		}
+		return maxC;
+	}
+	int maxSize()
+	{
+		return nodes.size();
+	}
+	int maxChildren()
+	{
+		int maxC = 0;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			if (nodes[i].children.size() > maxC)
+			{
+				maxC = nodes[i].children.size();
+			}
+		}
+		return maxC;
+	}
+	void encodeBytes(std::vector<unsigned char>& bytes)
+	{
+		assert(nodes.size() < 65536);
+		bytes.push_back(nodes.size()/256);
+		bytes.push_back(nodes.size()%256);
+		wroteBytesParameters += 2;
+		for (auto i = 0; i < nodes.size(); i++)
+		{
+			assert(nodes[i].children.size() < 65536);
+			bytes.push_back(nodes[i].children.size()/256);
+			bytes.push_back(nodes[i].children.size()%256);
+			wroteBytesParameters += 2;
+			if (nodes[i].children.size() == 0)
+			{
+				nodes[i].leaf.encodeBytes(bytes);
+			}
+			else
+			{
+				for (auto iter = nodes[i].children.begin(); iter != nodes[i].children.end(); iter++)
+				{
+					wroteBytesParameters += 4;
+					assert(iter->first < 65536);
+					bytes.push_back(iter->first/256);
+					bytes.push_back(iter->first%256);
+					assert(iter->second < 65536);
+					bytes.push_back(iter->second/256);
+					bytes.push_back(iter->second%256);
+				}
+				wroteBytesParameters += 1;
+				assert(nodes[i].testsVariable < 256);
+				bytes.push_back(nodes[i].testsVariable);
+			}
+		}
 	}
 private:
+	int getSize()
+	{
+		int size = 0;
+		size += 11;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			size += 10;
+			if (nodes[i].children.size() > 0)
+			{
+				size += nodes[i].children.size()*21+3;
+			}
+		}
+		return size;
+	}
+	void makeBestTree(const std::map<std::vector<int>, Distribution>& parameters)
+	{
+		int nodes = parameters.begin()->first.size();
+		int smallestIndex = 0;
+		int smallestSize = 0;
+		makeTree(parameters, permutation(nodes, 0));
+		smallestSize = getSize();
+		for (int i = 1; i < fac(nodes); i++)
+		{
+			makeTree(parameters, permutation(nodes, i));
+			int newSize = getSize();
+			if (newSize < smallestSize)
+			{
+				smallestSize = newSize;
+				smallestIndex = i;
+			}
+		}
+		makeTree(parameters, permutation(nodes, smallestIndex));
+	}
+	std::vector<int> permutation(int maxNum, int number)
+	{
+		std::vector<int> ret;
+		std::vector<int> numbersLeft;
+		for (int i = 0; i < maxNum; i++)
+		{
+			numbersLeft.push_back(i);
+		}
+		int moduloNumber = maxNum;
+		for (int i = 0; i < maxNum; i++)
+		{
+			ret.push_back(numbersLeft[number%moduloNumber]);
+			numbersLeft.erase(numbersLeft.begin()+(number%moduloNumber));
+			number /= moduloNumber;
+			moduloNumber--;
+		}
+		return ret;
+	}
+	void makeTree(const std::map<std::vector<int>, Distribution>& parameters, const std::vector<int>& parameterOrder)
+	{
+		nodes.clear();
+		nodes.emplace_back();
+		makeDecisionTreeRec(parameters, 0, 0, parameterOrder);
+	}
+	std::map<std::vector<int>, Distribution> filterParameters(const std::map<std::vector<int>, Distribution>& oldParams, int paramNum, int paramValue)
+	{
+		std::map<std::vector<int>, Distribution> ret;
+		for (auto iter = oldParams.begin(); iter != oldParams.end(); iter++)
+		{
+			if (iter->first[paramNum] == paramValue)
+			{
+				ret.emplace(iter->first, iter->second);
+			}
+		}
+		return ret;
+	}
+	void makeDecisionTreeRec(const std::map<std::vector<int>, Distribution>& parameters, int nodeNum, int parameterNum, const std::vector<int>& parameterOrder)
+	{
+		if (parameters.size() == 1)
+		{
+			nodes[nodeNum].leaf = parameters.begin()->second;
+			return;
+		}
+		nodes[nodeNum].testsVariable = parameterOrder[parameterNum];
+		std::set<int> usedValues;
+		for (auto iter = parameters.begin(); iter != parameters.end(); iter++)
+		{
+			if (usedValues.count(iter->first[parameterOrder[parameterNum]]) == 0)
+			{
+				usedValues.emplace(iter->first[parameterOrder[parameterNum]]);
+				nodes.emplace_back();
+				nodes.back().testsVariable = parameterOrder[parameterNum+1];
+				nodes[nodeNum].children.emplace(iter->first[parameterOrder[parameterNum]], nodes.size()-1);
+				auto newParams = filterParameters(parameters, parameterOrder[parameterNum], iter->first[parameterOrder[parameterNum]]);
+				makeDecisionTreeRec(newParams, nodes.size()-1, parameterNum+1, parameterOrder);
+			}
+		}
+	}
 	std::map<std::vector<int>, Distribution> learnDistributions(const ColumnSet& data)
 	{
 		std::map<std::vector<int>, std::vector<int>> counts;
@@ -269,7 +544,14 @@ private:
 		}
 		return ret;
 	}
-	std::map<std::vector<int>, Distribution> parameters;
+	class ParameterNode
+	{
+	public:
+		int testsVariable;
+		std::map<int, int> children;
+		Distribution leaf;
+	};
+	std::vector<ParameterNode> nodes;
 };
 
 class BayesNode
@@ -296,6 +578,7 @@ public:
 		nodes.resize(order.size());
 		for (int i = 0; i < nodes.size(); i++)
 		{
+			std::cerr << "making node " << i << "/" << nodes.size() << " ";
 			nodes[i].ownVariable = order[i];
 			for (int a = 0; a < links.size(); a++)
 			{
@@ -318,7 +601,31 @@ public:
 			{
 				nodes[i].parents.push_back(*a);
 			}
+			std::cerr << "(" << nodes[i].parents.size() << " parents)";
+			int startTime = clock();
 			nodes[i].parameters.learn(datas, nodes[i].parents, nodes[i].ownVariable);
+			int endTime = clock();
+			std::cerr << " " << (endTime-startTime) << " ms\n";
+		}
+	}
+	BayesNetwork(const std::vector<unsigned char>& bytes, int loc)
+	{
+		int size = bytes[loc];
+		loc++;
+		nodes.resize(size);
+		for (int i = 0; i < size; i++)
+		{
+			nodes[i].ownVariable = bytes[loc];
+			loc++;
+			int numParents = bytes[loc];
+			nodes[i].parents.resize(numParents);
+			loc++;
+			for (int a = 0; a < numParents; a++)
+			{
+				nodes[i].parents[a] = bytes[loc];
+				loc++;
+			}
+			nodes[i].parameters = BayesParameters{bytes, loc};
 		}
 	}
 	std::vector<unsigned char> encodeDataset(const ColumnSet& datas)
@@ -337,7 +644,7 @@ public:
 			unsigned int timeStart = clock();
 			decodeNode(ret, decoder, i);
 			unsigned int timeEnd = clock();
-			std::cerr << timeEnd-timeStart << "\n";
+			std::cerr << timeEnd-timeStart << " ms\n";
 		}
 		return ret;
 	}
@@ -352,6 +659,67 @@ public:
 			}
 			out << "\n\n";
 		}
+	}
+	int maxCount()
+	{
+		int maxC = 0;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			int compare = nodes[i].parameters.maxCount();
+			if (compare > maxC)
+			{
+				maxC = compare;
+			}
+		}
+		return maxC;
+	}
+	int maxSize()
+	{
+		int maxS = 0;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			if (nodes[i].parameters.maxSize() > maxS)
+			{
+				maxS = nodes[i].parameters.maxSize();
+			}
+		}
+		return maxS;
+	}
+	int maxChildren()
+	{
+		int maxC = 0;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			int compare = nodes[i].parameters.maxChildren();
+			if (compare > maxC)
+			{
+				maxC = compare;
+			}
+		}
+		return maxC;
+	}
+	std::vector<unsigned char> encodeBytes()
+	{
+		std::vector<unsigned char> ret;
+		assert(nodes.size() < 256);
+		ret.push_back(nodes.size());
+		wroteBytesNetwork += 1;
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			wroteBytesNetwork += 2;
+			assert(nodes[i].ownVariable < 256);
+			ret.push_back(nodes[i].ownVariable);
+			assert(nodes[i].parents.size() < 256);
+			ret.push_back(nodes[i].parents.size());
+			for (int a = 0; a < nodes[i].parents.size(); a++)
+			{
+				wroteBytesNetwork += 1;
+				assert(nodes[i].parents[a] < 256);
+				ret.push_back(nodes[i].parents[a]);
+			}
+			nodes[i].parameters.encodeBytes(ret);
+		}
+		return ret;
 	}
 private:
 	ArithmeticEncoder encodeDatasetRec(const ColumnSet& datas, int startNode, int endNode)
@@ -471,64 +839,6 @@ std::vector<unsigned char> getFileBytes(std::string fileName)
 		a = file.get();
 	}
 	return bytes;
-}
-
-int testMode(char** argv)
-{
-	if (*argv[1] == 'c')
-	{
-		std::cerr << argv[2]<< "\n";
-		ColumnSet testData = readTestData(argv[2], 4, 2000);
-
-		BayesParameters node{testData, {1, 2, 3}, 0};
-
-		ArithmeticEncoder encoder;
-
-		for (int i = 0; i < testData.rows(); i++)
-		{
-			encoder.encode(node.getDistribution({testData[1][i], testData[2][i], testData[3][i]}), testData[0][i]);
-		}
-
-		std::vector<unsigned char> bytes = encoder.getBytes();
-
-		std::ofstream out {argv[4], std::ios::binary};
-		uint32_t size = bytes.size();
-		std::cerr << size << "\n";
-		out.write((char*)&size, 4);
-		bytes = encoder.getBytes();
-		for (int i = 0; i < 15; i++)
-		{
-			std::cerr << (int)bytes[i] << "\n";
-		}
-		out.write((char*)bytes.data(), bytes.size());
-	}
-	else
-	{
-		ColumnSet testData = readTestData(argv[2], 4, 2000);
-
-		BayesParameters node{testData, {1, 2, 3}, 0};
-
-		std::vector<unsigned char> bytes = getFileBytes(argv[3]);
-		uint32_t size;
-		memcpy(&size, bytes.data(), 4);
-		std::cerr << size << "\n";
-		bytes.erase(bytes.begin(), bytes.begin()+4);
-		for (int i = 0; i < 15; i++)
-		{
-			std::cerr << (int)bytes[i] << "\n";
-		}
-
-		ArithmeticDecoder decoder(bytes);
-
-		std::ofstream out {argv[4]};
-
-		for (int i = 0; i < testData.rows(); i++)
-		{
-			unsigned char thisNode;
-			thisNode = decoder.getSymbol(node.getDistribution({testData[1][i], testData[2][i], testData[3][i]}));
-			out << (int)thisNode << "\n";
-		}
-	}
 }
 
 void addClique(std::vector<std::pair<int, int>>& links, std::vector<int> parts)
@@ -665,24 +975,36 @@ int caravanMode(char** argv)
 		std::cerr << "make network\n";
 		BayesNetwork net = makeDefaultNetwork(data);
 
+		std::cerr << "net max count: " << net.maxCount() << "\n";
+		std::cerr << "net max size: " << net.maxSize() << "\n";
+		std::cerr << "net max children: " << net.maxChildren() << "\n";
+
+		std::vector<unsigned char> netBytes = net.encodeBytes();
+		std::cerr << "got network bytes (" << netBytes.size() << ")\n";
+
+		std::cerr << "wrote network bytes: " << wroteBytesNetwork << "\n";
+		std::cerr << "wrote parameter bytes: " << wroteBytesParameters << "\n";
+		std::cerr << "wrote distribution bytes: " << wroteBytesDistribution << "\n";
+
 		std::vector<unsigned char> bytes = net.encodeDataset(data);
-		std::cerr << "got bytes\n";
+		std::cerr << "got probability bytes (" << bytes.size() << ")\n";
+		std::cerr << "write bytes\n";
 		std::ofstream out {argv[4], std::ios::binary};
-		uint32_t size = bytes.size();
-		out.write((char*)&size, 4);
 		out.write((char*)bytes.data(), bytes.size());
+
+		std::ofstream out2 {argv[7], std::ios::binary};
+		out2.write((char*)netBytes.data(), netBytes.size());
 	}
 	else
 	{
-		ColumnSet data = readCaravan(argv[2], argv[3]);
+		std::cerr << "get network bytes\n";
+		std::vector<unsigned char> networkBytes = getFileBytes(argv[7]);
 		std::cerr << "make network\n";
-		BayesNetwork net = makeDefaultNetwork(data);
+		BayesNetwork net {networkBytes, 0};
 
+		std::cerr << "get data bytes\n";
 		std::vector<unsigned char> bytes = getFileBytes(argv[4]);
 		std::cerr << "got bytes\n";
-		uint32_t size;
-		memcpy(&size, bytes.data(), 4);
-		bytes.erase(bytes.begin(), bytes.begin()+4);
 
 		ColumnSet outData = net.decodeBytes(bytes, DEBUG_CARAVAN_LINES);
 		std::ofstream out {argv[5]};
