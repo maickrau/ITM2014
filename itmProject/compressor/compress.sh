@@ -2,6 +2,7 @@
 
 gcc compressor/numberdiff.c -o numberdiff.out
 g++ compressor/paleocompresser.cpp -std=c++0x -o paleocompresser.out
+g++-4.7 compressor/finalcompressor.cpp -std=c++0x -o finalcompressor.cpp
 
 if [ "$1" == "data/curve1.dat" ]
 then
@@ -35,7 +36,7 @@ then
 	cat temp2.temp
 fi
 
-if [ "$1" == "data/bucket.1.dat" ] || [ "$1" == "data/bucket.2.dat" ] || [ "$1" == "data/monty_python_data_1.dat" ] 
+if [ "$1" == "data/bucket.1.dat" ] || [ "$1" == "data/bucket.2.dat" ] || [ "$1" == "data/bucket.3.dat" ] || [ "$1" == "data/monty_python_data_1.dat" ] || [ "$1" == "data/monty_python_data_2.dat" ]
 then
 	echo -n 4 > temp2.temp
 	cat $1 >> temp2.temp
@@ -46,6 +47,14 @@ if [ "$1" == "sdata/caravan.sdat" ]
 then
 	bzip2 --best < $2 > temp.temp
 	echo -n 6 > temp2.temp
+	cat temp.temp >> temp2.temp
+	cat temp2.temp
+fi
+
+if [ "$1" == "sdata/final.sdat" ]
+then
+	./finalcompressor.out $2 $1 temp.temp c
+	echo -n 8 > temp2.temp
 	cat temp.temp >> temp2.temp
 	cat temp2.temp
 fi
