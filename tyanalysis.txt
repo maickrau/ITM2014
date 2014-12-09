@@ -1,0 +1,67 @@
+It seems that all data points has been shifted up by 50 units. That is all y+50.
+
+There are 4 types of signals located in following intervals approximately:
+
+Base ("Noise") (See base.txt)
+
+1-200
+
+750-1150
+
+1700-2100
+
+2650-3050
+
+3550-3950
+
+4500-4900
+
+5400-5750
+
+6500-6650
+
+7450-7600
+
+8420-8540
+
+9360-9480
+
+TypeA1+Base (See typeA1.txt)
+
+201-749
+
+1151-1699
+
+2101-2649
+
+3051-3549
+
+3951-4499
+
+4901-5399
+
+TypeC+Base (See typeC.txt)
+
+5751-6499
+
+6651-7300
+
+7800-8220
+
+8780-9150
+
+9720-10000
+
+TyteA2+Base (Basically same with TypeA1 with higher frequency and smaller amplitude)
+
+7301-7449
+
+7601-7799
+
+8221-8419
+
+8541-8779
+
+9151-9359
+
+9481-9719
