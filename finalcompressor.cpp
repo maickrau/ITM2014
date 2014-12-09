@@ -380,7 +380,6 @@ void encodeDifferencesMode(char** argv)
 	{
 		writer.writeBits((char*)&top.height[i], sizeof(double)*8);
 		writer.writeBits((char*)&bottom.height[i], sizeof(double)*8);
-		std::cerr << bottom.height[i] << "\n";
 	}
 
 	for (int i = 0; i < data.size(); i++)
@@ -423,7 +422,6 @@ void decodeDifferencesMode(char** argv)
 	{
 		reader.readBits((char*)&top.height[i], sizeof(double)*8);
 		reader.readBits((char*)&bottom.height[i], sizeof(double)*8);
-		std::cerr << bottom.height[i] << "\n";
 	}
 
 	for (int i = 0; i < 20000; i++)
