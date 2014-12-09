@@ -2,7 +2,7 @@
 
 gcc compressor/numberdiff.c -o numberdiff.out
 g++ compressor/paleocompresser.cpp -std=c++0x -o paleocompresser.out
-g++-4.7 compressor/finalcompressor.cpp -std=c++0x -o finalcompressor.cpp
+g++-4.7 compressor/finalcompressor.cpp -std=c++0x -o finalcompressor.out
 
 if [ "$1" == "data/curve1.dat" ]
 then

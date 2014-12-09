@@ -2,7 +2,7 @@
 gcc decompressor/numberdiff.c -o numberdiff.out
 gcc decompressor/boringbytes.c -o boringbytes.out
 g++-4.7 decompressor/paleocompresser.cpp -std=c++11 -o paleocompresser.out
-g++-4.7 decompressor/finalcompressor.cpp -std=c++11 -o finalcompressor.out
+g++-4.7 decompressor/finalcompressor.cpp -std=c++11 -o finaldecompressor.out
 if [ "$#" == "2" ]
 then
 	a=$(head -c 1 < $2)
@@ -47,5 +47,5 @@ then
 fi
 if [ "$a" == "8" ]
 then
-	./finalcompressor.out a $1 fixed.temp d | sed 's/\.*0*$//g'
+	./finaldecompressor.out a $1 fixed.temp d | sed 's/\.*0*$//g'
 fi
