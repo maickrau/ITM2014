@@ -1,3 +1,8 @@
+%Needs matlab/octave function typeA1f.m and basef.m, where contain the models
+
+%It only model parts of the data. Some other parts of the data are tough, so just let they be.
+
+
 ty=load('ty.txt');
 
 result=0;
@@ -6,29 +11,17 @@ fid = fopen('ty.out', 'w+');
 
 for i = 1:10000;
 
-	if (201<=i && i<=749)||(1151<=i && i<=1699) ||(2101<=i && i<=2649) ||(3051<=i && i<=3549) ||(3951<=i && i<=4499) ||(4901<=i && i<=5399); %typeA1
-		result=ty(i)-(6*basef(i)+typeA1f(i-200)+30);
+	if (201<=i && i<=749)||(1151<=i && i<=1699)||(2101<=i && i<=2649)||(3051<=i && i<=3549)||(3951<=i && i<=4499); %typeA1
+		result=ty(i)-(7*basef(i)+typeA1f(i-200)+30);
 
-	elseif (7301<=i && i<=7499)||(7601<=i && i<=7799) ||(8221<=i && i<=8419)||(8541<=i && i<=8779) ||(9151<=i && i<=9359) ||(9481<=i && i<=9719); %typeA2
-		result=ty(i)-(6*basef(i)+typeA2f(i)+30);
+	elseif (1<=i && i<=200)||(750<=i && i<=1150)||(1700<=i && i<=2100)||(2650<=i && i<=3050)||(3550<=i && i<=3950)||(4500<=i && i<=4900)||(5400<=i && i<=5750)||(6500<=i && i<=6650)||(7450<=i && i<=7600)||(8420<=i && i<=8540)||(9360<=i && i<=9480); %Base
+		result=ty(i)-(7*basef(i)+30);
 
-	elseif (6750<=i && i<=7300); %typeC
-		result=ty(i)-(6*basef(i)-typeCf(i+600)+30);
+	else; result=ty(i);
 
-        elseif (7720<=i && i<=8250); %typeC
-		result=ty(i)-(6*basef(i)+typeCf(i)+30);
-
-        elseif (8780<=i && i<=9150); %typeC
-		result=ty(i)-(6*basef(i)+typeCf(i-100)+30);
-
-	elseif (9720<=i && i<=10000); %typeC
-		result=ty(i)-(6*basef(i)+typeCf(i)+30);
-
-	else;
-		result=ty(i)-(6*basef(i)+30);
 	endif;
 
-	fprintf(fid, '%#.2f', result);
+	fprintf(fid, '%#.4f', result);
 	fprintf(fid, '\n');
 
 endfor;
