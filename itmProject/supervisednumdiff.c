@@ -33,7 +33,7 @@ void compress(FILE* out, FILE* li)
 			fwrite(&largeDiff, 4, 1, out);
 			fwrite(&l+2, 1, 1, li); //Comment this line in the final version, length list will be a part of decompresser
 		}
-		else if ((newN-oldN >= 16384 && newN-oldN < 32768 )|| (-32767<newN-oldN && newN-oldN <= -16383))
+		else if ((newN-oldN >= 128 && newN-oldN < 32768 )|| (-32767<newN-oldN && newN-oldN <= -127))
 		{
 			int16_t midDiff = newN-oldN;
 			fwrite(&midDiff, 2, 1, out);
