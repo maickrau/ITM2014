@@ -26,6 +26,8 @@ Arithmetic encoder encodes the symbols recursively, time is about 20s. Decoder d
 #include <set>
 #include <ctime>
 #include <sstream>
+#include <cmath>
+#include <algorithm>
 
 int DEBUG_CARAVAN_LINES = 500;
 
@@ -186,6 +188,17 @@ public:
 		}
 		return ret;
 	};
+	int getLength() const
+	{
+		int ret = 0;
+		mpq_class encodeWidth = width;
+		while (encodeWidth < 256)
+		{
+			ret++;
+			encodeWidth *= 256;
+		}
+		return ret;
+	}
 private:
 	mpq_class location;
 	mpq_class width;
@@ -278,6 +291,26 @@ public:
 		}
 		return columnss-1;
 	};
+	double getEntropy()
+	{
+		std::map<std::vector<int>, int> counts;
+		for (int i = 0; i < rowss; i++)
+		{
+			std::vector<int> test;
+			for (int a = 0; a < columnss; a++)
+			{
+				test.push_back(cells[a][i]);
+			}
+			counts[test]++;
+		}
+		double ret = 0;
+		for (auto iter = counts.begin(); iter != counts.end(); iter++)
+		{
+			double prob = (double)iter->second/(double)rowss;
+			ret -= prob*log2(prob);
+		}
+		return ret;
+	}
 	std::vector<int>& operator[](int n)
 	{
 		return cells[n];
@@ -430,17 +463,7 @@ public:
 private:
 	int getSize()
 	{
-		int size = 0;
-		size += 11;
-		for (int i = 0; i < nodes.size(); i++)
-		{
-			size += 10;
-			if (nodes[i].children.size() > 0)
-			{
-				size += nodes[i].children.size()*21+3;
-			}
-		}
-		return size;
+		return nodes.size();
 	}
 	void makeBestTree(const std::map<std::vector<int>, Distribution>& parameters)
 	{
@@ -578,7 +601,7 @@ public:
 		nodes.resize(order.size());
 		for (int i = 0; i < nodes.size(); i++)
 		{
-			std::cerr << "making node " << i << "/" << nodes.size() << " ";
+			// std::cerr << "making node " << i << "/" << nodes.size() << " ";
 			nodes[i].ownVariable = order[i];
 			for (int a = 0; a < links.size(); a++)
 			{
@@ -601,11 +624,11 @@ public:
 			{
 				nodes[i].parents.push_back(*a);
 			}
-			std::cerr << "(" << nodes[i].parents.size() << " parents)";
+			// std::cerr << "(" << nodes[i].parents.size() << " parents)";
 			int startTime = clock();
 			nodes[i].parameters.learn(datas, nodes[i].parents, nodes[i].ownVariable);
 			int endTime = clock();
-			std::cerr << " " << (endTime-startTime) << " ms\n";
+			// std::cerr << " " << (endTime-startTime) << " ms\n";
 		}
 	}
 	BayesNetwork(const std::vector<unsigned char>& bytes, int loc)
@@ -631,7 +654,7 @@ public:
 	std::vector<unsigned char> encodeDataset(const ColumnSet& datas)
 	{
 		ArithmeticEncoder encoder = encodeDatasetRec(datas, 0, nodes.size());
-		std::cerr << "encode bytes\n";
+		// std::cerr << "encode bytes\n";
 		return encoder.getBytes();
 	}
 	ColumnSet decodeBytes(const std::vector<unsigned char>& bytes, int rows)
@@ -640,11 +663,11 @@ public:
 		ArithmeticDecoder decoder {bytes};
 		for (int i = 0; i < nodes.size(); i++)
 		{
-			std::cerr << "decode " << i << "/" << nodes.size() << " ";
+			// std::cerr << "decode " << i << "/" << nodes.size() << " ";
 			unsigned int timeStart = clock();
 			decodeNode(ret, decoder, i);
 			unsigned int timeEnd = clock();
-			std::cerr << timeEnd-timeStart << " ms\n";
+			// std::cerr << timeEnd-timeStart << " ms\n";
 		}
 		return ret;
 	}
@@ -721,6 +744,11 @@ public:
 		}
 		return ret;
 	}
+	int getDataEncodeLength(const ColumnSet& datas)
+	{
+		ArithmeticEncoder encoder = encodeDatasetRec(datas, 0, nodes.size());
+		return encoder.getLength();
+	}
 private:
 	ArithmeticEncoder encodeDatasetRec(const ColumnSet& datas, int startNode, int endNode)
 	{
@@ -730,7 +758,7 @@ private:
 		}
 		if (endNode == startNode+1)
 		{
-			std::cerr << "encode node " << startNode << "\n";
+			// std::cerr << "encode node " << startNode << "\n";
 			return encodeNode(datas, startNode);
 		}
 		int middle = (endNode-startNode)/2+startNode;
@@ -852,7 +880,202 @@ void addClique(std::vector<std::pair<int, int>>& links, std::vector<int> parts)
 	}
 }
 
-BayesNetwork makeDefaultNetwork(ColumnSet& data)
+BayesNetwork selectiveNetwork(ColumnSet& data)
+{
+	//network found by entropyMode. 
+	//Links are the 40 pairs with highest I(x, y)/min(E(X), E(Y))
+	//Order is taken from the links so highly connected variables are closely ordered
+	std::vector<int> order {
+		45,66,
+		53,74,
+		58,79,
+		64,85,
+		56,77,
+		49,70,
+		63,84,
+		46,67,
+		62,83,
+		1,5,
+		51,72,
+		48,69,
+		57,78,
+		35,36,
+		30,31,
+		44,65,
+		54,75,
+		61,82,
+		52,73,
+		1,43,
+		55,76,
+		59,80,
+		47,68,
+		74,80,
+		53,80,
+		51,53,
+		51,74,
+		53,72,
+		72,74,
+		56,74,
+		53,56,
+		46,74,
+		46,53,
+		74,77,
+		53,77,
+		52,74,
+		52,53,
+		21,74,
+		21,53,
+		1,53,
+		1,74,
+		10,12,
+		53,73,
+		73,74,
+		67,74,
+		53,67,
+		5,43
+	};
+	std::reverse(order.begin(), order.end());
+	std::vector<std::pair<int, int>> links {
+		{45, 66}
+		,{53, 74}
+		,{58, 79}
+		,{64, 85}
+		,{56, 77}
+		,{49, 70}
+		,{63, 84}
+		,{46, 67}
+		,{62, 83}
+		,{1, 5}
+		,{51, 72}
+		,{48, 69}
+		,{57, 78}
+		,{35, 36}
+		,{30, 31}
+		,{44, 65}
+		,{54, 75}
+		,{61, 82}
+		,{52, 73}
+		,{1, 43}
+		,{55, 76}
+		,{59, 80}
+		,{47, 68}
+		,{74, 80}
+		,{53, 80}
+		,{51, 53}
+		,{51, 74}
+		,{53, 72}
+		,{72, 74}
+		,{56, 74}
+		,{53, 56}
+		,{46, 74}
+		,{46, 53}
+		,{74, 77}
+		,{53, 77}
+		,{52, 74}
+		,{52, 53}
+		,{21, 74}
+		,{21, 53}
+		,{1, 53}
+	};
+	for (int i = 0; i < data.columns(); i++)
+	{
+		bool found = false;
+		for (int a = 0; a < order.size(); a++)
+		{
+			if (order[a] == i)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			order.push_back(i);
+		}
+	}
+	for (int i = data.columns()-1; i >= 0; i--)
+	{
+		for (int a = 0; a < i; a++)
+		{
+			if (order[a] == order[i])
+			{
+				order.erase(order.begin()+i);
+				a = i;
+			}
+		}
+	}
+	return BayesNetwork{data, links, order};
+}
+
+BayesNetwork minimalKnowledgeNetwork(ColumnSet& data)
+{
+	std::vector<int> order {0, 5, 1};
+	std::vector<std::pair<int, int>> links {{0, 1}, {1, 5}, {0, 5}};
+
+	for (int i = 2; i < 44; i++)
+	{
+		order.push_back(i);
+	}
+	for (int i = 44; i < 65; i++)
+	{
+		order.push_back(i+21);
+		order.push_back(i);
+	}
+	for (int i = 2; i < 37; i++)
+	{
+		if (i != 5)
+		{
+			links.emplace_back(5, i);
+		}
+	}
+	for (int i = 44; i < 65; i++)
+	{
+		links.emplace_back(5, i+21);
+		links.emplace_back(i, i+21);
+	}
+
+	for (int i = 0; i < data.columns(); i++)
+	{
+		bool found = false;
+		for (int a = 0; a < order.size(); a++)
+		{
+			if (order[a] == i)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			order.push_back(i);
+		}
+	}
+	for (int i = data.columns()-1; i >= 0; i--)
+	{
+		for (int a = 0; a < i; a++)
+		{
+			if (order[a] == order[i])
+			{
+				order.erase(order.begin()+i);
+				a = i;
+			}
+		}
+	}
+
+	return BayesNetwork{data, links, order};
+}
+
+BayesNetwork maximumEntropyNetwork(ColumnSet& data)
+{
+	std::vector<int> order;
+	for (int i = 0; i < data.columns(); i++)
+	{
+		order.push_back(i);
+	}
+	return BayesNetwork {data, {}, order};
+}
+
+BayesNetwork defaultNetwork(ColumnSet& data)
 {
 	const int age = 4;
 	const int income = 42;
@@ -889,7 +1112,7 @@ BayesNetwork makeDefaultNetwork(ColumnSet& data)
 	{
 		links.emplace_back(i, i+21);
 		links.emplace_back(i+21, subType);
-		links.emplace_back(i+21, mainType);
+		// links.emplace_back(i+21, mainType);
 	}
 	links.emplace_back(age, religion);
 	links.emplace_back(age, maritalStatus);
@@ -904,10 +1127,10 @@ BayesNetwork makeDefaultNetwork(ColumnSet& data)
 	links.emplace_back(income, socialClass);
 	links.emplace_back(income, car);
 	links.emplace_back(68, car); //car vs car insurance
-	links.emplace_back(21, 71); //farmer vs farmer equipment insurance
-	links.emplace_back(21, 72);
-	links.emplace_back(21, 73);
-	links.emplace_back(21, 74);
+	// links.emplace_back(21, 71); //farmer vs farmer equipment insurance
+	// links.emplace_back(21, 72);
+	// links.emplace_back(21, 73);
+	// links.emplace_back(21, 74);
 	std::vector<int> order = {
 		0, //side data
 		5, //main type
@@ -927,14 +1150,14 @@ BayesNetwork makeDefaultNetwork(ColumnSet& data)
 	};
 	for (int i = 44; i < 65; i++)
 	{
-		order.push_back(i+26);
+		order.push_back(i+21);
 		order.push_back(i);
 	}
 
-	for (int i = 0; i < data.columns(); i++)
-	{
-		links.emplace_back(0, i);
-	}
+	// for (int i = 0; i < data.columns(); i++)
+	// {
+	// 	links.emplace_back(0, i);
+	// }
 	for (int i = 0; i < data.columns(); i++)
 	{
 		bool found = false;
@@ -951,7 +1174,7 @@ BayesNetwork makeDefaultNetwork(ColumnSet& data)
 			order.push_back(i);
 		}
 	}
-	for (int i = data.columns(); i >= 0; i--)
+	for (int i = data.columns()-1; i >= 0; i--)
 	{
 		for (int a = 0; a < i; a++)
 		{
@@ -966,6 +1189,78 @@ BayesNetwork makeDefaultNetwork(ColumnSet& data)
 	return net;
 }
 
+int sizeTestMode(char** argv)
+{
+	DEBUG_CARAVAN_LINES = atoi(argv[6]);
+
+	ColumnSet data = readCaravan(argv[2], argv[3]);
+	std::cerr << "make network\n";
+	BayesNetwork net = selectiveNetwork(data);
+
+	std::cerr << "net max count: " << net.maxCount() << "\n";
+	std::cerr << "net max decision tree size: " << net.maxSize() << "\n";
+	std::cerr << "net max children: " << net.maxChildren() << "\n";
+
+	std::vector<unsigned char> netBytes = net.encodeBytes();
+	std::cerr << "got network bytes " << netBytes.size() << "\n";
+
+	int dataSize = net.getDataEncodeLength(data);
+	std::cerr << "data size: " << dataSize << "\n";
+
+	std::ofstream out2 {argv[7], std::ios::binary};
+	out2.write((char*)netBytes.data(), netBytes.size());
+}
+
+int entropyMode(char** argv)
+{
+	ColumnSet data = readCaravan(argv[2], argv[3]);
+	std::vector<double> entropy;
+	std::vector<std::tuple<int, double>> entropies;
+	for (int i = 0; i < data.columns(); i++)
+	{
+		ColumnSet part = data.getColumns({i});
+		entropy.push_back(part.getEntropy());
+		entropies.emplace_back(i, entropy[i]);
+		// std::cout << i << ": " << entropy[i] << "\n";
+	}
+	std::vector<std::tuple<int, int, double>> coefficients;
+	for (int i = 0; i < data.columns(); i++)
+	{
+		for (int a = 0; a < i; a++)
+		{
+			ColumnSet part = data.getColumns({i, a});
+			double jointEntropy = part.getEntropy();
+			double mutualInformation = (entropy[i]+entropy[a]-jointEntropy);
+			double relationCoefficient = -1;
+			if (entropy[i] != 0 && entropy[a] != 0)
+			{
+				relationCoefficient = mutualInformation/std::min(entropy[i], entropy[a]);
+			}
+			coefficients.emplace_back(a, i, relationCoefficient);
+		}
+	}
+	std::sort(entropies.begin(), entropies.end(),
+			[](std::tuple<int, double> a, std::tuple<int, double> b)
+			{
+				return std::get<1>(a) > std::get<1>(b);
+			});
+	std::sort(coefficients.begin(), coefficients.end(), 
+			[](std::tuple<int, int, double> a, std::tuple<int, int, double> b) 
+			{
+				return std::get<2>(a) > std::get<2>(b) || 
+						(std::get<2>(a) == std::get<2>(b) && std::get<1>(a) > std::get<1>(b)) || 
+						(std::get<2>(a) == std::get<2>(b) && std::get<1>(a) == std::get<1>(b) && std::get<0>(a) > std::get<0>(b));
+			});
+	for (int i = 0; i < entropies.size(); i++)
+	{
+		std::cout << std::get<0>(entropies[i]) << ": " << std::get<1>(entropies[i]) << "\n";
+	}
+	for (int i = 0; i < coefficients.size(); i++)
+	{
+		std::cout << std::get<0>(coefficients[i]) << ", " << std::get<1>(coefficients[i]) << ": " << std::get<2>(coefficients[i]) << "\n";
+	}
+}
+
 int caravanMode(char** argv)
 {
 	DEBUG_CARAVAN_LINES = atoi(argv[6]);
@@ -973,7 +1268,7 @@ int caravanMode(char** argv)
 	{
 		ColumnSet data = readCaravan(argv[2], argv[3]);
 		std::cerr << "make network\n";
-		BayesNetwork net = makeDefaultNetwork(data);
+		BayesNetwork net = defaultNetwork(data);
 
 		std::cerr << "net max count: " << net.maxCount() << "\n";
 		std::cerr << "net max size: " << net.maxSize() << "\n";
@@ -1025,5 +1320,7 @@ int caravanMode(char** argv)
 
 int main(int argc, char** argv)
 {
-	caravanMode(argv);
+	// entropyMode(argv);
+	// caravanMode(argv);
+	sizeTestMode(argv);
 }
