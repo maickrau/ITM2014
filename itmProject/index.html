@@ -10,25 +10,193 @@
 
 <center>
 <h1>Project - De Compression Competition</h1>  
-<h2>Author1, Author2, Author3</h2>
+<h2>Mikko Rautiainen, Luo Liangyi</h2>
 </center>
 
-<h3>Description of your compression algorithm</h3>
+<h3>Description of the compression algorithm</h3>
 
-<P>
-Describe the ideas/observations/principles underlying the compressor 
-algorithm, the compression results with
-<a href="data">the given data sets</a>.
-You can (but do not have to) use also charts, 
-GNU-plot figures etc. to clarify the numerical information.
-This information will not be published to the other groups before
-the final round. You can update this document on each round.
-</P>
+<p>The code for the compressor is <a href="https://github.com/maickrau/ITM2014">available at github</a>. The compressor is composed of smaller compressor programs built specifically for a certain file. A script decides which compressor to use based on which file is to be compressed. The compressor script also writes one byte into the compressed file that tells which program was used to compress the data. </p>
 
-You should also include a directory with the <a href="src">source code</a>.
+<p>The decompressor is also composed of smalled decompressor programs built specifically for a certain file. The decompressor script first reads the byte that tells which program was used to compress the data, and then passes the rest of the file to the specific decompressor. </p>
 
-<P><strong>Note:</strong> The programs must compile in Linux and
-conform to the <strong>runtest.sh</strong> script in the template.
-</P>
+<p>The compressors for each dataset are described in the sections below. The descriptions give an overview of the algorithm. For details about the implementation, consult the source code.</p>
+
+<h3>Curve and ty datasets</h3>
+
+<p>The curve dataset contains numbers on some kind of a curve. The ty dataset also contains same kind of data. The same compressor was used for both datasets. Some curvefitting was attempted on the datasets, however the attempts didn't produce anything useful. Figure 1 shows the curve dataset in blue, a curve fitted to it in green and the residuals in yellow. The final compressor compresses the data by storing the difference between two consecutive numbers. The difference is encoded as two bytes, or four bytes for large outliers. </p>
+
+<p align="middle">
+<img src="img/curve.png" /><br/>
+Figure 1: Curve dataset (blue), fitted curve (green) and residual (yellow)
+</p>
+
+<h3>Paleo dataset</h3>
+
+<p>The paleo dataset is a comma separated file with 14 columns. The first column is a species name, replaced with finnish words. The other columns contain numerical values that describe the species. The last four columns are calculated from the earlier columns. The first three calculated columns, ww/dm, ww/wh and uw/dm, are divisions of the earlier columns. The last column, whorl expansion ratio, is calculated by (dm/(dm-ah))<sup>2</sup>. In most rows, but not all, the values of the four last rows match the calculated values.</p>
+
+<p>The compressor compresses the data cell by cell. There are two modes of compression for each column. For each row, there is also a set of flags that tells which mode of compression is used for each cell.</p>
+
+<p>The first column is compressed with a symbol code for alphabets. The flag tells whether the genus is the same as in the row before it, eg. a row with "pyykki sijainti" followed by a row with "pyykki edus" doesn't compress the second "pyykki". Each alphabet is encoded as 5 bits and the length of the string is encoded with 5 bits.</p>
+
+<p>The second column is compressed as either an empty cell or a 12 bit integer.</p>
+
+<p>The third column is compressed either as a 4 bit integer or an 8 bit integer.</p>
+
+<p>Columns 4 to 7 are compressed either as a byte, or with a symbol code for numbers. Each digit or comma is compressed as 3 or 4 bits, and the length of the string is compressed with 3 or 4 bits.</p>
+
+<p>Column 8 is compressed either as a 0 or with the symbol code for numbers.</p>
+
+<p>Column 9 is compressed either as a 4 bit or a 6 bit integer.</p>
+
+<p>For column 10, the flag tells whether it's the same as the third column. Otherwise it is compressed with the symbol code for numbers.</p>
+
+<p>For columns 11 to 14, the flag tells whether the cell is equal to the value calculated from the earlier columns. If it is not, the cell is compressed with the symbol code for numbers.</p>
+
+<p>There is also an alternate compressor for the paleo dataset. The alternate compressor splits the csv file's columns into their own files, which are then compressed using general purpose compressor such as bzip2. This compresses the file to about 78 kilobytes, 5 kilobytes less than the other implementation. However, due to lack of time the alternate implementation could not be integrated into the compressor. The alternate implementation is available <a href="https://www.dropbox.com/s/9xdnbd8hk8k6p4x/paleo.tar.bz2?dl=0">here</a>.
+
+<h3>Caravan dataset</h3>
+
+<p>The caravan dataset is a set of rows, with variables that describe a person and their decision of either buying insurance or not. The caravan dataset is compressed with bzip2 because the compression ratio for bzip2 was better than the custom solution to it. However, <a href="https://github.com/maickrau/ITM2014/blob/master/bncompressor.cpp">an attempt</a> was made at using a <a href="http://en.wikipedia.org/wiki/Bayesian_network">bayesian network</a> for compressing the dataset.</p>
+
+<p><b>Bayes network compressor</b></p>
+
+<p>A bayesian network defines a probability distribution over the values in each row. The rows can then be compressed using arithmetic encoding. Because of performance reasons, the compressor actually encodes the data column by column instead of row by row. However, this doesn't change the output. Finally, the network itself is also encoded.</p>
+
+<p>The bayesian network is built by first defining an undirected graph over the nodes, and an ordering of the nodes. A node's parents are those that are adjacent to it in the undirected graph and before it in the ordering. The node's parameters are calculated directly from the data.</p>
+
+<p>Four different networks were tried. First, the default network is a handcrafted network, with links between variables that should be connected according to common sense, and an ordering that is also defined by common sense ideas of cause and effect. The second network is a maximum entropy network where none of the nodes are connected with each others. This network is in practice equivalent to using arithmetic compression to compress the columns. The third network, called minimal knowledge network, uses knowledge of the customer's type to predict every other variable, and knowledge of the number of insurances to predict insurance contributions. The last network, called selective network, was built by looking at the entropies and mutual informations of the variables in the data.</p>
+
+<p>The selective network's undirected graph was found by calculating the entropies of each node in the dataset, and then defining a "relatedness coefficient" as C = I(X, Y)/min(E(X), E(Y)). The relatedness coefficient is 0 when the mutual information between two variables is zero, and 1 when the mutual information is highest, that is, equal to the entropy of the variable with less entropy. Essentially, the relatedness coefficient tells how much knowing one variable helps you predict the other. A relatedness coefficient of 1 means that the lower entropy variable can be predicted perfectly when the higher entropy variable's value is known. The undirected graph was defined by taking the 40 pairs with the highest relatedness coefficient. Using more pairs was tried but it didn't improve the compression enough to offset the increased size of the network.</p>
+
+<p>The default network compressed the data to about 37 kilobytes. However, the network itself took over 200 kilobytes to encode. All of the minimal knowledge network, maximum entropy network and selective network achieved compression sizes of between 80 and 90 kilobytes for the data and the network. This was still worse than bzip2 so the bayesian network compressor was not used.</p>
+
+<p><b>Bzip2 algorithm</b></p>
+
+<p>Bzip2 utilise several compression techniques in an order, which can be illustrated as follows</p>
+ 
+<p>Data->(Run-length encoding(RLE)->Burrows-Wheeler transform(BWT)->Move to Front(MTF)->Run-length encoding->Huffman coding->Optional Multiple Huffman tables and Unary base 1 encoding->Delta encoding-> Sparse bit array)->Encapsulation->Compressed Data</p>
+
+<p>In the first step: Bzip2 use RLE technique for encoding sequences of 4-255 repetitive symbols into four of the repetitive symbols with a marker of repeated times for the rest of the symbol sequences. For example, &quot;00000000000006110000111&quot; will be encoded as &quot;0000\96110000\0111&quot;. Some redundant symbols are replaced by a marker in the process.</p>
+
+<p>In the second step, Burrows-Wheeler transformation will list all rotations of a block of symbols, sort the list into lexicographical orders, then take the last column as the output. For example:  &amp;121231234* will be turned into &amp;23111223*4, as the illustration below.</p>
+
+<div align="middle">
+<table>
+<tr>
+<td>All Rotations</td>
+<td>Sorting and take last column</td>
+</tr>
+<tr>
+<td align="middle">
+&amp;121231234*<br/>
+*&amp;121231234<br/>
+4*&amp;12123123<br/>
+34*&amp;1212312<br/>
+234*&amp;121231<br/>
+1234*&amp;12123<br/>
+31234*&amp;1212<br/>
+231234*&amp;121<br/>
+1231234*&amp;12<br/>
+21231234*&amp;1<br/>
+121231234*&amp;<br/>
+</td>
+<td align="middle">
+121231234*&amp;<br/>
+1231234*&amp;12<br/>
+1234*&amp;12123<br/>
+21231234*&amp;1<br/>
+231234*&amp;121<br/>
+234*&amp;121231<br/>
+31234*&amp;1212<br/>
+34*&amp;1212312<br/>
+4*&amp;12123123<br/>
+&amp;121231234*<br/>
+*&amp;121231234<br/>
+</td>
+</tr>
+</table>
+</div>
+
+<p>The effect of BWT is move repetitive symbols together. In the example all &quot;1&quot; are list in a consecutive sequence.</p>
+
+<p>In the third step, the MTF algorithm will record a sequence of symbols as their position in a list of alphabets. After each recording, the recorded symbol will be moved to the first (&quot;0&quot;) position of the alphabet. </p>
+
+<p>For example:</p>
+
+<div align="middle">
+<table align="middle">
+<tr>
+<td>Iteration</td>
+<td>positons</td>
+<td>alphabet</td>
+</tr>
+<tr>
+<td align="middle">
+deeed<br/>
+deeed<br/>
+deeed<br/>
+deeed<br/>
+deeed<br/>
+</td>
+<td align="middle">
+3<br/>
+3,4<br/>
+3,4,0<br/>
+3,4,0,0<br/>
+3,4,0,0,1<br/>
+</td>
+<td align="middle">
+abcde<br/>
+dabce<br/>
+edabc<br/>
+edabc<br/>
+deabe<br/>
+</td>
+</tr>
+</table>
+</div>
+
+<p>The output alphabet and symbol position can be used for decoding with a reversed process. The benefit of using MTF is to record a long sequence of repetitive symbols as a sequence of zeros.</p>
+
+<p>In the fourth, the Bzip2 will run RLE again but in this RLE process, the sequence of zeros generated by previous step will be replace by special symbol &quot;RUNA&quot; and  &quot;RUNB&quot;. Compare with RLE in step 1, RLE in this step can encode repetition of arbitrary length with out 255 upper limits.</p>
+
+<p>The fifth step is Huffman coding.</p>
+
+<p>If  multiple Huffman tables are needed, the algorithm can generate up to six Huffman tables. Later in the seventh step, a unary code of 1-6 bits will be used for representing which table to use.</p>
+
+<p>In the eighth step, Bzip2 will use Delta coding to reconstruct Huffman table, such that several similar Huffman tables will be encoded using code differences result in short overall code length for encoding the table.</p>
+
+<p>Finally, in the ninth step, Bzip2 decides which symbols should be mapped to symbol codes of Huffman tables using a sparse method.</p>
+
+<p>After these steps, Bzip2 will encapsulate processed data into Bzip2 data stream. Decompression follows a procedure of steps in a reversed order, and in each steps, reversed processes will restore the compressed data gradually to its original form. </p>
+
+<h3>Final dataset</h3>
+
+<p>The final dataset is a set of points in 3d space. The data to be compressed is the z-value of a point, and the x and y values are given in the side data. The data can be roughly divided into three saddle-shaped patches. Figures 2, 3 and 4 show the data from different angles. The datapoints are divided into red, green and blue patches.</p>
+
+<p align="middle">
+<img src="img/final1.png" /><br/>
+Figure 2: Final dataset
+</p>
+
+<p align="middle">
+<img src="img/final2.png" /><br>
+Figure 3: Final dataset
+</p>
+
+<p align="middle">
+<img src="img/final3.png" /><br>
+Figure 4: Final dataset
+</p>
+
+<p>A <a href="http://en.wikipedia.org/wiki/Bezier_patch">bezier patch</a> was used to predict the z-value of each point. The data was divided into the patches, and a bezier patch was fitted on each data patch. Bezier patches with 3x3 and 4x4 grids were tried, and using the larger grid did not seem to improve the prediction. Using a Bezier patch for each patch in the dataset was also compared with using one patch to predict both the red and green patches. The prediction was slightly more accurate with three patches, however not enough to make the compression better. The final solution was to use two 3x3 patches, one for both red and green, and one for blue. A bit for each point tells which patch it belongs to. Then, the difference between the point's z-value and the predicted z-value is encoded as a 12 bit integer and a sign bit.</p>
+
+<h3>Penalty/reward datas</h3>
+
+<p>Since all of the penalty/reward datas looked like random bytes, the compressor doesn't even try to compress them. The stock.dat file was an attempt at fooling the other teams into wasting time trying to compress it. The file is actually generated by a random walk, however some trickery was used to make the compressed file look bigger than one byte. The program that generates the data was actually stored into the compressed file, and the decompressor compiles and runs that file. However, the file itself was so small that it doesn't make much sense for the other teams to spend too much time with the file even if they think it can be compressed.
+
+<h3>Individual contributions</h3>
+
+<p>Contribution history is visible at the github page's commit history. Mikko wrote all the compressors used in the final delivery, compressor scripts, prepared the tars for delivery and wrote the report except for the bzip2 explanation. Luo contributed the bzip2 explanation and the alternate paleo compressor.</p>
 
 <hr>
